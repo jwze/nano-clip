@@ -84,7 +84,7 @@ Sources/
    └─ Support/    进程内存读数（诊断用）
 Tests/
 ├─ NanoClipTests/                # 核心逻辑（54 个）
-└─ NanoClipUITests/              # 面板/搜索/按键/偏好（21 个）
+└─ NanoClipUITests/              # 面板/搜索/按键/偏好/热键录制（26 个）
 Scripts/  build-app.sh  install.sh  Info.plist  GenerateAppIcon.swift  TestPasteboard.swift
 ```
 
@@ -121,10 +121,10 @@ ps -o rss= -p "$(pgrep -x NanoClip)"
 ### 自动化测试
 
 ```bash
-swift test        # 75 个用例：核心 54 + 面板/按键 21，全绿
+swift test        # 80 个用例：核心 54 + 面板/按键/偏好 26，全绿
 ```
 
-覆盖：去重与置顶保护、条数与图片容量淘汰、删除同时清图、孤儿图片 GC、搜索 LIKE 转义、图片超限拒绝、空/超长文本、文件与敏感类型跳过、忽略 App、纯文本写回类型、PNG/TIFF 编解码、Prefs 默认值与夹取、面板按键映射（↩/esc/↑↓/⌘⌫/⌘P/⌘,）、搜索输入到列表过滤、图片行渲染。
+覆盖：去重与置顶保护、条数与图片容量淘汰、删除同时清图、孤儿图片 GC、搜索 LIKE 转义、图片超限拒绝、空/超长文本、文件与敏感类型跳过、忽略 App、纯文本写回类型、PNG/TIFF 编解码、Prefs 默认值与夹取、面板按键映射（↩/esc/↑↓/⌘⌫/⌘P/⌘,）、搜索输入到列表过滤、图片行渲染、快捷键录制（⌘⌥V 记录 / 无修饰键拒绝 / esc 取消）、状态栏图标与菜单契约。
 
 ### 运行期端到端（本机实测）
 
@@ -170,7 +170,7 @@ sqlite3 ~/Library/Application\ Support/NanoClip/history.sqlite3 \
 
 ```bash
 swift build                 # debug
-swift test                  # 75 个用例
+swift test                  # 80 个用例
 ./Scripts/build-app.sh      # release + 打包 + 签名
 ./Scripts/install.sh        # 安装到 /Applications 并启动
 open -a NanoClip --args --show-history        # 启动即展开面板
