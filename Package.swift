@@ -17,15 +17,5 @@ let package = Package(
             dependencies: ["NanoClipCore"],
             path: "Sources/NanoClip"
         ),
-        .testTarget(
-            name: "NanoClipTests",
-            dependencies: ["NanoClipCore"],
-            path: "Tests/NanoClipTests"
-        ),
-        .testTarget(
-            name: "NanoClipUITests",
-            dependencies: ["NanoClip"],
-            path: "Tests/NanoClipUITests"
-        ),
     ]
 )

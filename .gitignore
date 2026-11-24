@@ -1,7 +1,54 @@
+# ---- Swift Package Manager ----
 .build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+*.xcworkspace/
+
+# ---- 构建产物 ----
 build/
-.DS_Store
-*.xcuserdatad
-*.log
+dist/
+*.app/
+DerivedData/
+.assets/
+
+# ---- 编译中间文件 ----
+*.o
+*.d
+*.dia
+*.swiftdeps
+*.swiftconstvalues
+*.pcm
+*.modulemap
+*.abi.json
+
+# ---- 图标生成中间产物 ----
 Resources/AppIcon.icns
 Scripts/.iconset/
+*.iconset/
+
+# ---- macOS 系统文件 ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+Icon?
+*.xcuserdatad
+xcuserdata/
+
+# ---- 签名 / 工程配置 ----
+*.entitlements.bak
+*.provisionprofile
+*.p12
+*.cer
+
+# ---- 日志 ----
+*.log
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+*~
