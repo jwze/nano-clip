@@ -64,7 +64,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "偏好设置…", action: #selector(menuShowPreferences), keyEquivalent: ",")
+        let preferencesMenuItem = NSMenuItem(
+            title: "偏好设置…",
+            action: #selector(menuShowPreferences),
+            keyEquivalent: ","
+        )
+        preferencesMenuItem.target = self
+        appMenu.addItem(preferencesMenuItem)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 NanoClip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 

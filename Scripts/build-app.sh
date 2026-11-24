@@ -10,7 +10,7 @@ APP_NAME="NanoClip"
 APP="$ROOT/build/$APP_NAME.app"
 
 echo "==> swift build ($CONFIG)"
-swift build -c "$CONFIG" --product "$APP_NAME"
+swift build -c "$CONFIG" --product "$APP_NAME" -Xlinker -dead_strip
 
 BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
 BIN="$BIN_DIR/$APP_NAME"

@@ -63,6 +63,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         quitItem.keyEquivalent = "q"
         quitItem.keyEquivalentModifierMask = [.command]
         menu.addItem(quitItem)
+
+        Log.info(
+            "status item ready: image=\(statusItem.button?.image == nil ? "nil" : "SF Symbol") "
+                + "menuItems=\(menu.items.count) visible=\(statusItem.isVisible)"
+        )
     }
 
     func refreshHotKeyTitle() {
