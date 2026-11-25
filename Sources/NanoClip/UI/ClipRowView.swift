@@ -2,14 +2,15 @@ import AppKit
 
 /// One history row: icon well or thumbnail, single-line preview, source/time subtitle.
 ///
-/// The row paints its own rounded selection pill instead of using `NSTableView`'s stock full-width
-/// highlight, which is what makes the list read as a modern popover rather than a 2005 table.
+/// The row paints its own HUD pill: a cyan-tinted glass rectangle with a bright left rail when
+/// selected, a whisper of light on hover. `NSTableView`'s stock highlight stays switched off.
 @MainActor
 final class ClipRowView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("ClipRow")
     static var rowHeight: CGFloat { Theme.Metrics.rowHeight }
 
     private let pill = FlippedView()
+    private let rail = FlippedView()
     private let iconWell = FlippedView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -39,23 +40,32 @@ final class ClipRowView: NSTableCellView {
         pill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(pill)
 
+        rail.wantsLayer = true
+        rail.layer?.cornerRadius = 1.25
+        rail.layer?.backgroundColor = Theme.neon.cgColor
+        rail.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rail)
+
         iconWell.wantsLayer = true
-        iconWell.layer?.cornerRadius = 7
+        iconWell.layer?.cornerRadius = 8
+        iconWell.layer?.borderWidth = 1
+        iconWell.layer?.masksToBounds = true
         iconWell.translatesAutoresizingMaskIntoConstraints = false
         iconWell.addSubview(iconView)
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = Theme.textSecondary
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = Theme.Font.rowTitle
+        titleLabel.textColor = Theme.textPrimary
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.cell?.truncatesLastVisibleLine = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         subtitleLabel.font = Theme.Font.rowSubtitle
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.textColor = Theme.textSecondary
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = 1
         subtitleLabel.cell?.truncatesLastVisibleLine = true
@@ -72,7 +82,12 @@ final class ClipRowView: NSTableCellView {
             pill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
 
-            iconWell.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 9),
+            rail.leadingAnchor.constraint(equalTo: pill.leadingAnchor),
+            rail.topAnchor.constraint(equalTo: topAnchor, constant: 13),
+            rail.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -13),
+            rail.widthAnchor.constraint(equalToConstant: 2.5),
+
+            iconWell.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 9),
             iconWell.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconWell.widthAnchor.constraint(equalToConstant: 30),
             iconWell.heightAnchor.constraint(equalToConstant: 30),
@@ -82,13 +97,13 @@ final class ClipRowView: NSTableCellView {
             iconView.widthAnchor.constraint(equalToConstant: 20),
             iconView.heightAnchor.constraint(equalToConstant: 20),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconWell.trailingAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: iconWell.trailingAnchor, constant: 11),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 11),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(inset + 11)),
+            titleLabel.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -11),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(inset + 11)),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            subtitleLabel.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -11),
         ])
 
         refreshPill()
@@ -98,12 +113,12 @@ final class ClipRowView: NSTableCellView {
 
     func configure(icon: NSImage?, text: String, subtitle: String, isImage: Bool) {
         iconView.image = icon
-        // Thumbnails keep their own colours; text rows use a tinted glyph on a soft well.
-        iconView.contentTintColor = isImage ? nil : .secondaryLabelColor
+        // Thumbnails keep their own colours; text rows use a tinted glyph inside a glass well.
+        iconView.contentTintColor = isImage ? nil : Theme.textSecondary
         iconView.imageScaling = isImage ? .scaleProportionallyUpOrDown : .scaleProportionallyDown
-        iconWell.isHidden = false
         titleLabel.stringValue = text
         subtitleLabel.stringValue = subtitle
+        refreshPill()
     }
 
     func setPillSelected(_ selected: Bool) {
@@ -123,43 +138,25 @@ final class ClipRowView: NSTableCellView {
         refreshPill()
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                owner: self
-            )
-        )
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        setHovered(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        setHovered(false)
-    }
-
     private func refreshPill() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            let background: NSColor?
-            let border: NSColor?
-            if isPillSelected {
-                background = Theme.rowSelection
-                border = Theme.rowSelectionBorder
-            } else if isHovered {
-                background = Theme.rowHover
-                border = .clear
-            } else {
-                background = .clear
-                border = .clear
-            }
-            pill.layer?.backgroundColor = background?.cgColor
-            pill.layer?.borderColor = border?.cgColor
-            iconWell.layer?.backgroundColor = Theme.iconWell.cgColor
+        let background: NSColor
+        let border: NSColor
+        if isPillSelected {
+            background = Theme.selectionFill
+            border = Theme.selectionBorder
+        } else if isHovered {
+            background = Theme.glass
+            border = Theme.borderSoft
+        } else {
+            background = .clear
+            border = .clear
         }
+        pill.layer?.backgroundColor = background.cgColor
+        pill.layer?.borderColor = border.cgColor
+        rail.isHidden = !isPillSelected
+        iconWell.layer?.backgroundColor = Theme.glass.cgColor
+        iconWell.layer?.borderColor = (isPillSelected ? Theme.selectionBorder : Theme.borderSoft).cgColor
+        titleLabel.textColor = Theme.textPrimary
+        subtitleLabel.textColor = isPillSelected ? Theme.textSecondary : Theme.textTertiary
     }
 }

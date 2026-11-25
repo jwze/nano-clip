@@ -19,9 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        if ProcessInfo.processInfo.environment["NANOCLIP_DARK"] == "1" {
-            NSApp.appearance = NSAppearance(named: .darkAqua)
-        }
         installMainMenu()
         if !CommandLine.arguments.contains("--diagnostics") {
             SingleInstance.exitIfAlreadyRunning()
@@ -189,14 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startStatusItem() {
         let controller = StatusItemController()
         controller.hotKeyDisplay = { [weak self] in self?.prefs.hotKeyTrigger.menuString ?? "" }
-        controller.loginItemOn = { LoginItem.isEnabled }
-        controller.onShowHistory = { [weak self] in self?.showHistory() }
+        controller.itemCount = { [weak self] in self?.store?.statistics().count ?? 0 }
         controller.onShowPreferences = { [weak self] in self?.showPreferences() }
-        controller.onToggleLoginItem = { [weak self] in
-            guard let self else { return }
-            self.prefs.launchAtLogin.toggle()
-        }
-        controller.refreshHotKeyTitle()
         statusItemController = controller
     }
 

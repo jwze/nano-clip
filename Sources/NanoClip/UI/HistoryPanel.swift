@@ -16,6 +16,7 @@ final class HistoryPanel: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
+        appearance = NSAppearance(named: .aqua)
         hasShadow = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]

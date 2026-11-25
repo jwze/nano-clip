@@ -5,7 +5,7 @@ import NanoClipCore
 /// Click-to-record shortcut button. While recording it becomes first responder and swallows the
 /// next key combo (or a double tap of one modifier); Esc cancels.
 @MainActor
-final class HotKeyRecorderButton: NSButton {
+final class HotKeyRecorderButton: TechButton {
     var onChange: ((HotKeyTrigger) -> Void)?
     private var isRecording = false
     private var tappedModifier: (modifier: ModifierKey, at: TimeInterval)?
@@ -18,15 +18,10 @@ final class HotKeyRecorderButton: NSButton {
 
     init(trigger: HotKeyTrigger) {
         self.trigger = trigger
-        super.init(frame: .zero)
-        bezelStyle = .rounded
-        setButtonType(.momentaryPushIn)
+        super.init(title: trigger.displayString)
         target = self
         action = #selector(beginRecording)
-        font = Theme.Font.button
-        controlSize = .regular
-        updateTitle()
-        widthAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
+        widthAnchor.constraint(greaterThanOrEqualToConstant: 118).isActive = true
     }
 
     required init?(coder: NSCoder) {
@@ -96,7 +91,7 @@ final class HotKeyRecorderButton: NSButton {
         let converted = KeyCombo(keyCode: UInt32(event.keyCode), cocoaModifiers: UInt32(flags.rawValue))
         guard converted.hasModifier else {
             NSSound.beep()
-            title = "需要修饰键，请重按…"
+            setDisplayTitle("需要修饰键…")
             return
         }
         commit(.keyCombo(converted))
@@ -123,7 +118,13 @@ final class HotKeyRecorderButton: NSButton {
     }
 
     private func updateTitle() {
-        title = isRecording ? "录制中…" : trigger.displayString
+        setDisplayTitle(isRecording ? "录制中…" : trigger.displayString)
+        captionColor = isRecording ? Theme.neon : nil
+        if isRecording {
+            layer?.borderColor = Theme.neonSoft.cgColor
+        } else {
+            refresh()
+        }
     }
 
     private static func cgFlag(for modifier: ModifierKey) -> NSEvent.ModifierFlags {
@@ -154,15 +155,16 @@ final class PreferencesViewController: NSViewController,
     private let maxItemsStepper = NSStepper()
     private let unlimitedItemsSwitch = NSSwitch()
     private let recordImagesSwitch = NSSwitch()
-    private let clearHistoryButton = NSButton(title: "清空历史…", target: nil, action: nil)
+    private let clearHistoryButton = TechButton(title: "清空历史…")
     private let historyStatsLabel = NSTextField(labelWithString: "")
     private let loginStatusLabel = NSTextField(labelWithString: "")
     private let ignoredTable = NSTableView()
     private let ignoredScrollView = NSScrollView()
-    private let removeIgnoredButton = NSButton(title: "移除选中", target: nil, action: nil)
+    private let removeIgnoredButton = TechButton(title: "移除选中")
     private let ignoredCountLabel = NSTextField(labelWithString: "")
 
     private var ignoredIDs: [String] = []
+
 
     init(store: ClipStore, prefs: Prefs) {
         self.store = store
@@ -176,21 +178,44 @@ final class PreferencesViewController: NSViewController,
     }
 
     override func loadView() {
-        let root = AppearanceObservingView()
-        root.wantsLayer = true
-        root.onAppearanceChange = { [weak self] in self?.applyCardChrome() }
+        let root = HUDSolidView()
+
+        buildHeader(in: root)
+
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.borderType = .noBorder
+        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 14, right: 0)
+
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 14
+        stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(stack)
+        document.addSubview(stack)
+        scroll.documentView = document
+        root.addSubview(scroll)
+
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 18),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+            scroll.topAnchor.constraint(equalTo: root.topAnchor, constant: 52),
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 2),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -8),
         ])
 
         // MARK: 通用
@@ -198,8 +223,8 @@ final class PreferencesViewController: NSViewController,
         launchAtLoginSwitch.action = #selector(toggleLaunchAtLogin)
         launchAtLoginSwitch.controlSize = .small
 
-        loginStatusLabel.font = Theme.Font.hint
-        loginStatusLabel.textColor = .secondaryLabelColor
+        loginStatusLabel.font = Theme.Font.monoHint
+        loginStatusLabel.textColor = Theme.textTertiary
 
         hotKeyButton.onChange = { [weak self] trigger in
             guard let self else { return }
@@ -207,28 +232,32 @@ final class PreferencesViewController: NSViewController,
             self.onHotKeyChanged?(trigger)
             self.refreshRuntimeState()
         }
-        let resetHotKeyButton = NSButton(title: "恢复默认", target: self, action: #selector(resetHotKey))
-        styleSecondaryButton(resetHotKeyButton)
+        let resetHotKeyButton = TechButton(title: "恢复默认")
+        resetHotKeyButton.target = self
+        resetHotKeyButton.action = #selector(resetHotKey)
 
-        stack.addArrangedSubview(
-            sectionHeader("通用", symbol: "gearshape")
-        )
+        stack.addArrangedSubview(sectionHeader("通用", latin: "GENERAL"))
         addCard([
-            toggleRow("登录时自动启动 NanoClip", toggle: launchAtLoginSwitch),
+            toggleRow("登录时自动启动", toggle: launchAtLoginSwitch, hint: "随系统登录在后台运行，不打开窗口"),
             indented(loginStatusLabel),
             settingRow("呼出快捷键", controls: [hotKeyButton, resetHotKeyButton]),
             Theme.hairline(),
-            hintRow("默认双击 ⌥ 呼出；也可以点上面按钮后录一个组合键。"),
+            hintRow("默认双击 ⌥ 呼出；也可以点上面按钮后录一个组合键，Esc 取消录制。"),
             hintRow("选中条目只会复制到剪贴板，不会自动粘贴；粘贴请按 ⌘V。"),
         ], to: stack)
 
         // MARK: 历史
-        maxItemsField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        maxItemsField.textColor = .labelColor
-        maxItemsField.alignment = .right
+        maxItemsField.font = Theme.Font.mono(11.5, weight: .regular)
+        maxItemsField.textColor = Theme.textPrimary
+        maxItemsField.alignment = .center
         maxItemsField.delegate = self
+        maxItemsField.isBezeled = true
         maxItemsField.bezelStyle = .roundedBezel
-        maxItemsField.widthAnchor.constraint(equalToConstant: 62).isActive = true
+        maxItemsField.drawsBackground = true
+        maxItemsField.backgroundColor = Theme.glass
+        maxItemsField.focusRingType = .none
+        maxItemsField.widthAnchor.constraint(equalToConstant: 64).isActive = true
+
         maxItemsStepper.minValue = 1
         maxItemsStepper.maxValue = 5000
         maxItemsStepper.increment = 50
@@ -243,17 +272,14 @@ final class PreferencesViewController: NSViewController,
         recordImagesSwitch.target = self
         recordImagesSwitch.action = #selector(toggleRecordImages)
         recordImagesSwitch.controlSize = .small
-        recordImagesSwitch.target = self
-        recordImagesSwitch.action = #selector(toggleRecordImages)
-        recordImagesSwitch.controlSize = .small
 
         clearHistoryButton.target = self
         clearHistoryButton.action = #selector(clearHistory)
-        styleSecondaryButton(clearHistoryButton)
-        historyStatsLabel.font = Theme.Font.hint
-        historyStatsLabel.textColor = .secondaryLabelColor
 
-        stack.addArrangedSubview(sectionHeader("历史", symbol: "clock.arrow.circlepath"))
+        historyStatsLabel.font = Theme.Font.monoHint
+        historyStatsLabel.textColor = Theme.textSecondary
+
+        stack.addArrangedSubview(sectionHeader("历史", latin: "HISTORY"))
         addCard([
             toggleRow("不限制保留条数", toggle: unlimitedItemsSwitch),
             settingRow("保留条数", controls: [maxItemsField, maxItemsStepper, captionLabel("条")]),
@@ -264,8 +290,8 @@ final class PreferencesViewController: NSViewController,
         ], to: stack)
 
         // MARK: 忽略的 App
-        ignoredCountLabel.font = Theme.Font.hint
-        ignoredCountLabel.textColor = .tertiaryLabelColor
+        ignoredCountLabel.font = Theme.Font.monoHint
+        ignoredCountLabel.textColor = Theme.textTertiary
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("ignored"))
         column.resizingMask = .autoresizingMask
@@ -283,69 +309,128 @@ final class PreferencesViewController: NSViewController,
         ignoredScrollView.drawsBackground = false
         ignoredScrollView.borderType = .noBorder
         ignoredScrollView.wantsLayer = true
-        ignoredScrollView.layer?.cornerRadius = 8
+        ignoredScrollView.layer?.cornerRadius = Theme.Metrics.controlCornerRadius
         ignoredScrollView.layer?.borderWidth = 1
         ignoredScrollView.translatesAutoresizingMaskIntoConstraints = false
-        ignoredScrollView.heightAnchor.constraint(equalToConstant: 120).isActive = true
+        ignoredScrollView.heightAnchor.constraint(equalToConstant: 132).isActive = true
 
-        let addAppButton = NSButton(title: "添加应用…", target: self, action: #selector(addIgnoredApp))
-        styleSecondaryButton(addAppButton)
-        styleSecondaryButton(removeIgnoredButton)
+        let addAppButton = TechButton(title: "添加应用…")
+        addAppButton.target = self
+        addAppButton.action = #selector(addIgnoredApp)
         removeIgnoredButton.target = self
         removeIgnoredButton.action = #selector(removeIgnoredApps)
 
-        let ignoredButtons = NSStackView(views: [addAppButton, removeIgnoredButton, NSView(), ignoredCountLabel])
+        let ignoredButtons = NSStackView(views: [
+            addAppButton, removeIgnoredButton, NSView(), ignoredCountLabel,
+        ])
         ignoredButtons.orientation = .horizontal
         ignoredButtons.spacing = 8
         ignoredButtons.alignment = .centerY
 
-        let ignoredHint = Theme.label(
-            "这些 App 复制的内容不会被记录。密码类 App 已默认加入。",
-            font: Theme.Font.hint,
-            color: .secondaryLabelColor
-        )
-
-        stack.addArrangedSubview(sectionHeader("忽略的 App", symbol: "eye.slash"))
-        addCard([ignoredHint, ignoredScrollView, ignoredButtons], to: stack)
+        stack.addArrangedSubview(sectionHeader("忽略的 App", latin: "EXCLUSIONS"))
+        addCard([
+            hintRow("这些 App 复制的内容不会被记录。密码类 App 已默认加入。"),
+            ignoredScrollView,
+            ignoredButtons,
+        ], to: stack)
 
         // MARK: footer
-        let footer = Theme.label(
-            "NanoClip \(AppInfo.version) · 数据位置：~/Library/Application Support/NanoClip",
-            font: .systemFont(ofSize: 10),
-            color: .tertiaryLabelColor,
-            alignment: .center
+        let footer = Theme.monoLabel(
+            "NANOCLIP \(AppInfo.version) · ~/LIBRARY/APPLICATION SUPPORT/NANOCLIP",
+            size: 8.5,
+            weight: .regular,
+            color: Theme.textTertiary,
+            tracking: 0.6
         )
-        stack.addArrangedSubview(footer)
+        footer.alignment = .center
+        let footerHolder = FlippedView()
+        footerHolder.translatesAutoresizingMaskIntoConstraints = false
+        footerHolder.addSubview(footer)
+        NSLayoutConstraint.activate([
+            footer.topAnchor.constraint(equalTo: footerHolder.topAnchor, constant: 4),
+            footer.bottomAnchor.constraint(equalTo: footerHolder.bottomAnchor),
+            footer.centerXAnchor.constraint(equalTo: footerHolder.centerXAnchor),
+        ])
+        stack.addArrangedSubview(footerHolder)
+        footerHolder.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         view = root
 
         syncControls()
         reloadIgnored()
         refreshRuntimeState()
+        applyChrome()
 
-        root.layoutSubtreeIfNeeded()
-        preferredContentSize = NSSize(width: 560, height: max(560, stack.fittingSize.height + 34))
-        applyCardChrome()
+        preferredContentSize = NSSize(width: 580, height: 688)
+    }
+
+    private func buildHeader(in root: HUDSolidView) {
+        let brand = NSImageView()
+        brand.image = BrandMark.neonImage(size: 20, color: Theme.neon)
+        brand.translatesAutoresizingMaskIntoConstraints = false
+
+        let wordmark = Theme.monoLabel(
+            "NANOCLIP",
+            size: 11,
+            weight: .semibold,
+            color: Theme.textPrimary,
+            tracking: 2.8
+        )
+        let caption = Theme.monoLabel(
+            "设置 · SETTINGS",
+            size: 8.5,
+            weight: .regular,
+            color: Theme.textTertiary,
+            tracking: 1.4
+        )
+        let titles = NSStackView(views: [wordmark, caption])
+        titles.orientation = .vertical
+        titles.alignment = .leading
+        titles.spacing = 1
+        titles.translatesAutoresizingMaskIntoConstraints = false
+
+        let version = HUDBadge(text: "v\(AppInfo.version)", color: Theme.textSecondary)
+
+        let separator = Theme.hairline()
+        root.addSubview(brand)
+        root.addSubview(titles)
+        root.addSubview(version)
+        root.addSubview(separator)
+
+        NSLayoutConstraint.activate([
+            brand.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
+            brand.centerYAnchor.constraint(equalTo: root.topAnchor, constant: 28),
+
+            titles.leadingAnchor.constraint(equalTo: brand.trailingAnchor, constant: 10),
+            titles.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
+
+            version.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
+            version.centerYAnchor.constraint(equalTo: brand.centerYAnchor),
+
+            separator.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+            separator.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            separator.topAnchor.constraint(equalTo: root.topAnchor, constant: 48),
+        ])
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        applyCardChrome()
+        applyChrome()
+
     }
 
-    private func applyCardChrome() {
-        view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            ignoredScrollView.layer?.backgroundColor = Theme.searchBackground.cgColor
-            ignoredScrollView.layer?.borderColor = Theme.cardBorder.cgColor
-        }
+    private func applyChrome() {
+        ignoredScrollView.layer?.backgroundColor = Theme.glass.cgColor
+        ignoredScrollView.layer?.borderColor = Theme.borderSoft.cgColor
+        maxItemsField.backgroundColor = Theme.glass
     }
 
     // MARK: - Runtime state
 
     func refreshRuntimeState() {
-        loginStatusLabel.stringValue = "系统登录项状态：\(LoginItem.statusDescription)"
+        loginStatusLabel.stringValue = "系统登录项：\(LoginItem.statusDescription)"
         let stats = store.statistics()
-        var statsText = "\(stats.count) 条记录 · 图片 "
+        var statsText = "\(stats.count) 条 · 图片 "
             + ByteCountFormatter.string(fromByteCount: Int64(stats.imageBytes), countStyle: .file)
         statsText += prefs.keepsEverything ? " · 不限制条数" : " · 最多 \(prefs.maxItems) 条"
         if !prefs.recordImages {
@@ -519,26 +604,30 @@ final class PreferencesViewController: NSViewController,
 
     // MARK: - Layout helpers
 
-    private func sectionHeader(_ title: String, symbol: String) -> NSView {
-        let icon = NSImageView()
-        icon.image = Theme.symbol(symbol, pointSize: 10.5, weight: .semibold)
-        icon.contentTintColor = .tertiaryLabelColor
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 14).isActive = true
+    private func sectionHeader(_ title: String, latin: String) -> NSView {
+        let tick = FlippedView()
+        tick.wantsLayer = true
+        tick.layer?.cornerRadius = 1.5
+        tick.layer?.backgroundColor = Theme.neon.cgColor
+        tick.translatesAutoresizingMaskIntoConstraints = false
 
-        let label = Theme.label(title, font: Theme.Font.sectionHeader, color: .secondaryLabelColor)
+        let label = Theme.monoLabel(
+            "\(title)  \(latin)",
+            size: 9,
+            weight: .semibold,
+            color: Theme.textSecondary,
+            tracking: 1.6
+        )
 
-        let row = NSStackView(views: [icon, label])
+        let row = NSStackView(views: [tick, label])
         row.orientation = .horizontal
-        row.spacing = 5
+        row.spacing = 7
         row.alignment = .centerY
+        NSLayoutConstraint.activate([
+            tick.widthAnchor.constraint(equalToConstant: 3),
+            tick.heightAnchor.constraint(equalToConstant: 10),
+        ])
         return row
-    }
-
-    private func styleSecondaryButton(_ button: NSButton) {
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.font = Theme.Font.button
     }
 
     /// Adds a card to the column and pins it to the full width (a `.leading` stack does not stretch).
@@ -549,7 +638,7 @@ final class PreferencesViewController: NSViewController,
     }
 
     private func captionLabel(_ text: String) -> NSTextField {
-        Theme.label(text, font: Theme.Font.hint, color: .secondaryLabelColor)
+        Theme.label(text, font: Theme.Font.caption, color: Theme.textSecondary)
     }
 
     private func indented(_ control: NSView) -> NSView {
@@ -560,24 +649,36 @@ final class PreferencesViewController: NSViewController,
 
     /// Dimmed explanatory line inside a card.
     private func hintRow(_ text: String) -> NSView {
-        Theme.label(text, font: Theme.Font.hint, color: .secondaryLabelColor)
+        let label = Theme.label(text, font: Theme.Font.caption, color: Theme.textTertiary)
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 2
+        return label
     }
 
     /// Leading label with the switch pushed to the trailing edge.
-    private func toggleRow(_ title: String, toggle: NSSwitch) -> NSView {
-        let label = Theme.label(title, font: Theme.Font.body)
+    private func toggleRow(_ title: String, toggle: NSSwitch, hint: String? = nil) -> NSView {
+        let label = Theme.label(title, font: Theme.Font.body, color: Theme.textPrimary)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+
         let row = NSStackView(views: [label, spacer, toggle])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
-        return row
+        guard let hint else { return row }
+
+        let hintLabel = Theme.label(hint, font: Theme.Font.caption, color: Theme.textTertiary)
+        let column = NSStackView(views: [row, hintLabel])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 3
+        column.setHuggingPriority(.defaultLow, for: .horizontal)
+        return column
     }
 
     /// Label at the leading edge, controls pushed to the trailing edge.
     private func settingRow(_ title: String, controls: [NSView]) -> NSView {
-        let label = Theme.label(title, font: Theme.Font.body)
+        let label = Theme.label(title, font: Theme.Font.body, color: Theme.textPrimary)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
 
@@ -606,11 +707,12 @@ final class IgnoredAppCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         nameLabel.font = Theme.Font.caption
+        nameLabel.textColor = Theme.textPrimary
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        idLabel.font = .systemFont(ofSize: 10)
-        idLabel.textColor = .tertiaryLabelColor
+        idLabel.font = Theme.Font.mono(9, weight: .regular)
+        idLabel.textColor = Theme.textTertiary
         idLabel.lineBreakMode = .byTruncatingTail
         idLabel.translatesAutoresizingMaskIntoConstraints = false
         idLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -670,15 +772,19 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         viewController.onLoginItemChanged = onLoginItemChanged
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 688),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.title = "NanoClip 偏好设置"
+        window.title = "NanoClip 设置"
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.backgroundColor = .windowBackgroundColor
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = Theme.base
+        window.minSize = NSSize(width: 560, height: 480)
         super.init(window: window)
         window.contentViewController = viewController
         window.delegate = self

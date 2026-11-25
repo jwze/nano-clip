@@ -40,6 +40,10 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         let controller = HistoryViewController(store: store)
         controller.onActivate = { [weak self] item in self?.onActivate?(item) }
         controller.onDelete = { [weak self] item in self?.onDelete?(item) }
+        controller.onOpenPreferences = { [weak self] in
+            self?.hide()
+            self?.onOpenPreferences?()
+        }
         panel.contentViewController = controller
         contentController = controller
         // Assigning a content view controller re-sizes the panel to its fitting size; force the
@@ -196,6 +200,9 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
             onOpenPreferences?()
             return true
         default:
+            // Keystroke goes to the search field; refresh the query right after it lands so input
+            // method compositions filter the list live instead of only on commit.
+            DispatchQueue.main.async { [weak self] in self?.contentController?.syncQueryFromField() }
             return false
         }
     }

@@ -27,10 +27,12 @@ cp "$ROOT/Scripts/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 ICON="$ROOT/Resources/AppIcon.icns"
-if [ ! -f "$ICON" ]; then
+BRAND="$ROOT/Sources/NanoClip/UI/BrandMark.swift"
+if [ ! -f "$ICON" ] || [ "$ROOT/Scripts/GenerateAppIcon.swift" -nt "$ICON" ] || [ "$BRAND" -nt "$ICON" ]; then
   echo "==> generating icon"
   mkdir -p "$ROOT/Resources"
-  swift "$ROOT/Scripts/GenerateAppIcon.swift" "$ICON"
+  swiftc -parse-as-library -O     "$ROOT/Scripts/GenerateAppIcon.swift" "$BRAND"     -o "$ROOT/build/GenerateAppIcon"
+  "$ROOT/build/GenerateAppIcon" "$ICON"
 fi
 cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
 
