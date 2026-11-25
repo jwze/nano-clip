@@ -5,7 +5,7 @@ import AppKit
 /// app the user is working in stays active and the focus switch is invisible.
 @MainActor
 final class HistoryPanel: NSPanel {
-    static let size = NSSize(width: 360, height: 470)
+    static var size: NSSize { Theme.Metrics.panelSize }
 
     init() {
         super.init(

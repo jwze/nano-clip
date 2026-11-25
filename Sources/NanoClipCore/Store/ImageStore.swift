@@ -1,7 +1,8 @@
 import Foundation
 
-/// Images live as individual PNG files named by content hash, so re-capturing the same
-/// image never duplicates bytes on disk.
+/// Images live as individual files named by content hash, so re-capturing the same image never
+/// duplicates bytes on disk. The stored bytes are exactly what the pasteboard delivered, which
+/// means the file extension reflects the user's original format (png, tiff, jpg, heic, …).
 public final class ImageStore: @unchecked Sendable {
     public let directory: URL
     private let fileManager = FileManager.default
@@ -11,11 +12,11 @@ public final class ImageStore: @unchecked Sendable {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    public func write(png: Data, hash: String) throws -> String {
-        let name = "\(hash).png"
+    public func write(data: Data, hash: String, fileExtension: String) throws -> String {
+        let name = "\(hash).\(fileExtension)"
         let url = directory.appendingPathComponent(name)
         if !fileManager.fileExists(atPath: url.path) {
-            try png.write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
         }
         return name
     }
@@ -41,7 +42,7 @@ public final class ImageStore: @unchecked Sendable {
         guard let names = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return 0 }
         var removed = 0
         for name in names {
-            guard name.hasSuffix(".png"), !paths.contains(name) else { continue }
+            guard !name.hasPrefix("."), !paths.contains(name) else { continue }
             try? fileManager.removeItem(at: directory.appendingPathComponent(name))
             removed += 1
         }

@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: PasteboardMonitor?
     private var capture: CaptureService?
     private var hotKey: HotKeyManager?
+    private var doubleTap: DoubleTapMonitor?
+    private var appliedTrigger: HotKeyTrigger?
     private var frontmostTracker: FrontmostTracker?
     private var statusItemController: StatusItemController?
     private var historyController: HistoryPanelController?
@@ -17,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if ProcessInfo.processInfo.environment["NANOCLIP_DARK"] == "1" {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
         installMainMenu()
         if !CommandLine.arguments.contains("--diagnostics") {
             SingleInstance.exitIfAlreadyRunning()
@@ -40,8 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         handleLaunchArguments()
 
         Log.info(
-            "ready: hotkey=\(prefs.hotKey.displayString) store=\(store?.directory.path ?? "?") "
-                + "trusted=\(Accessibility.isTrusted) rss=\(ProcessMemory.residentDescription)"
+            "ready: hotkey=\(prefs.hotKeyTrigger.displayString) store=\(store?.directory.path ?? "?") "
+                + "rss=\(ProcessMemory.residentDescription)"
         )
     }
 
@@ -139,18 +144,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manager = HotKeyManager()
         manager.onTrigger = { [weak self] in self?.showHistory() }
         hotKey = manager
-        registerHotKey(notifyOnFailure: false)
+
+        let monitor = DoubleTapMonitor()
+        monitor.onTrigger = { [weak self] in self?.showHistory() }
+        doubleTap = monitor
+
+        applyHotKey(notifyOnFailure: false)
     }
 
-    private func registerHotKey(notifyOnFailure: Bool) {
-        guard let hotKey else { return }
-        let combo = prefs.hotKey
-        let ok = hotKey.register(combo)
-        statusItemController?.refreshHotKeyTitle()
-        guard !ok, notifyOnFailure else { return }
+    /// Registers whichever trigger the user chose. Key combos go through Carbon; a double tap is
+    /// read from the global modifier state, so neither path needs Accessibility permission.
+    private func applyHotKey(notifyOnFailure: Bool) {
+        let trigger = prefs.hotKeyTrigger
+        guard trigger != appliedTrigger else {
+            statusItemController?.refreshHotKeyTitle()
+            return
+        }
+        appliedTrigger = trigger
 
+        hotKey?.unregister()
+        doubleTap?.stop()
+
+        switch trigger {
+        case .keyCombo(let combo):
+            let ok = hotKey?.register(combo) ?? false
+            statusItemController?.refreshHotKeyTitle()
+            guard !ok, notifyOnFailure else { return }
+            presentHotKeyFailure(combo.displayString)
+        case .doubleTap(let modifier):
+            doubleTap?.start(modifier: modifier)
+            Log.info("double tap \(modifier.name) registered")
+            statusItemController?.refreshHotKeyTitle()
+        }
+    }
+
+    private func presentHotKeyFailure(_ display: String) {
         let alert = NSAlert()
-        alert.messageText = "快捷键 \(combo.displayString) 注册失败"
+        alert.messageText = "快捷键 \(display) 注册失败"
         alert.informativeText = "可能已被其他程序占用。请在偏好设置里换一个组合键。"
         alert.alertStyle = .warning
         alert.runModal()
@@ -158,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startStatusItem() {
         let controller = StatusItemController()
-        controller.hotKeyDisplay = { [weak self] in self?.prefs.hotKey.displayString ?? "" }
+        controller.hotKeyDisplay = { [weak self] in self?.prefs.hotKeyTrigger.menuString ?? "" }
         controller.loginItemOn = { LoginItem.isEnabled }
         controller.onShowHistory = { [weak self] in self?.showHistory() }
         controller.onShowPreferences = { [weak self] in self?.showPreferences() }
@@ -195,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func preferencesDidChange() {
         store?.trim(limits: prefs.limits)
+        applyHotKey(notifyOnFailure: true)
         statusItemController?.refreshHotKeyTitle()
         historyController?.refreshIfVisible()
 
@@ -225,27 +256,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showHistory() {
         guard let store else { return }
         if historyController == nil {
-            let controller = HistoryPanelController(store: store, prefs: prefs)
+            let controller = HistoryPanelController(store: store)
             controller.fallbackTargetProvider = { [weak self] in
                 self?.frontmostTracker?.lastExternalApplication
             }
-            controller.onActivate = { [weak self] item in self?.activate(item) }
+            controller.onActivate = { [weak self] item in self?.copyToPasteboard(item) }
             controller.onDelete = { [weak self] item in
                 self?.store?.delete(id: item.id)
                 self?.historyController?.refreshIfVisible()
             }
-            controller.onTogglePin = { [weak self] item in
-                self?.store?.setPinned(id: item.id, pinned: !item.pinned)
-                self?.historyController?.refreshIfVisible()
-            }
             controller.onOpenPreferences = { [weak self] in self?.showPreferences() }
-            controller.onRequestAccessibility = { [weak self] in self?.requestAccessibility() }
             historyController = controller
         }
         historyController?.show()
     }
 
-    private func activate(_ item: ClipItem) {
+    /// Puts the chosen item back on the pasteboard. Re-copying an existing entry never creates a
+    /// second row: the write is announced to the monitor, so the poller ignores its own change,
+    /// and the row is bumped to the front of the list by refreshing its timestamp.
+    private func copyToPasteboard(_ item: ClipItem) {
         guard let store else { return }
 
         let changeCount: Int
@@ -257,34 +286,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.error("image file missing for item \(item.id)")
                 return
             }
-            changeCount = PasteboardWriter.writePNG(data)
+            changeCount = PasteboardWriter.writeImage(data, uti: store.imageUTI(for: item))
         }
         monitor?.expectChange(changeCount)
         store.touch(id: item.id)
 
         let target = historyController?.targetApplication
-        let autoPaste = PastePolicy.shouldAutoPaste(
-            autoPasteEnabled: prefs.autoPaste,
-            accessibilityTrusted: Accessibility.isTrusted
-        )
         Log.info(
-            "activate item \(item.id) kind=\(item.kind == .text ? "text" : "image") "
-                + "target=\(target?.bundleIdentifier ?? "none") autoPaste=\(autoPaste)"
+            "copied item \(item.id) kind=\(item.kind == .text ? "text" : "image") "
+                + "target=\(target?.bundleIdentifier ?? "none")"
         )
 
         // Hide on the next run loop turn: the panel controller must not be torn down while its own
-        // callback is still on the stack.
+        // callback is still on the stack. Focus goes back to the app the user came from, so a
+        // manual ⌘V lands in the right place.
         DispatchQueue.main.async { [weak self] in
             self?.historyController?.hide(restoreFocus: false)
-            guard autoPaste else {
-                target?.activate()
-                return
-            }
             target?.activate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                Paster.sendPasteCommand()
-                Log.info("posted ⌘V")
-            }
         }
     }
 
@@ -297,24 +315,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store: store,
                 prefs: prefs,
                 onHotKeyChanged: { [weak self] _ in
-                    self?.registerHotKey(notifyOnFailure: true)
+                    self?.applyHotKey(notifyOnFailure: true)
                 },
                 onLoginItemChanged: { enabled in
                     LoginItem.apply(enabled: enabled)
-                },
-                onAutoPasteChanged: { _ in },
-                onRequestAccessibility: { [weak self] in self?.requestAccessibility() }
+                }
             )
         }
         NSApp.activate()
         preferencesController?.showWindow(nil)
         preferencesController?.window?.makeKeyAndOrderFront(nil)
-    }
-
-    private func requestAccessibility() {
-        let trusted = Accessibility.requestAccess(prompt: true)
-        Log.info("accessibility permission requested (trusted=\(trusted))")
-        Accessibility.openSettings()
     }
 
     // MARK: - Diagnostics
@@ -323,12 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let bundleID = Bundle.main.bundleIdentifier ?? "none"
         print("bundle: \(bundleID)")
         print("version: \(AppInfo.version)")
-        print("hotkey: \(prefs.hotKey.displayString)")
-        print("autoPaste: \(prefs.autoPaste)")
-        print("accessibilityTrusted: \(Accessibility.isTrusted)")
+        print("hotkey: \(prefs.hotKeyTrigger.displayString)")
         print("launchAtLogin(pref): \(prefs.launchAtLogin)")
         print("launchAtLogin(system): \(LoginItem.statusDescription)")
-        print("maxItems: \(prefs.maxItems)")
+        print("maxItems: \(prefs.keepsEverything ? "unlimited" : String(prefs.maxItems))")
         print("recordImages: \(prefs.recordImages)")
         print("ignoredApps: \(prefs.ignoredBundleIDs.count)")
 

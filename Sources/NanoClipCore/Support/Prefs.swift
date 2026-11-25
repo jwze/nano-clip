@@ -18,17 +18,17 @@ public final class Prefs: @unchecked Sendable {
         "com.enpass.Enpass",
     ]
 
+    /// `maxItems == 0` means "keep everything".
+    public static let unlimitedItems = 0
+
     private enum Key {
         static let launchAtLogin = "launchAtLogin"
         static let didAttemptLoginItem = "didAttemptLoginItem"
-        static let autoPaste = "autoPaste"
         static let maxItems = "maxItems"
         static let recordImages = "recordImages"
-        static let maxImageBytes = "maxImageBytes"
-        static let maxTotalImageBytes = "maxTotalImageBytes"
-        static let hotKeyCode = "hotKeyCode"
-        static let hotKeyModifiers = "hotKeyModifiers"
+        static let hotKeyTrigger = "hotKeyTrigger"
         static let ignoredBundleIDs = "ignoredBundleIDs"
+        static let didMigrateRetention = "didMigrateRetention"
     }
 
     private let defaults: UserDefaults
@@ -40,17 +40,23 @@ public final class Prefs: @unchecked Sendable {
         defaults.register(defaults: [
             Key.launchAtLogin: true,
             Key.didAttemptLoginItem: false,
-            Key.autoPaste: true,
-            Key.maxItems: 500,
+            Key.maxItems: Self.unlimitedItems,
             Key.recordImages: true,
-            Key.maxImageBytes: 20 * 1024 * 1024,
-            Key.maxTotalImageBytes: 500 * 1024 * 1024,
-            Key.hotKeyCode: Int(KeyCombo.default.keyCode),
-            Key.hotKeyModifiers: Int(KeyCombo.default.modifiers),
         ])
         if defaults.object(forKey: Key.ignoredBundleIDs) == nil {
             defaults.set(Self.defaultIgnoredBundleIDs, forKey: Key.ignoredBundleIDs)
         }
+        migrateRetention()
+    }
+
+    /// 1.x wrote its 500-entry default to disk; the new default is "keep everything", so a stored
+    /// 500 is treated as the old default rather than a deliberate cap. Runs once.
+    private func migrateRetention() {
+        guard !defaults.bool(forKey: Key.didMigrateRetention) else { return }
+        if defaults.object(forKey: Key.maxItems) != nil, defaults.integer(forKey: Key.maxItems) == 500 {
+            defaults.set(Self.unlimitedItems, forKey: Key.maxItems)
+        }
+        defaults.set(true, forKey: Key.didMigrateRetention)
     }
 
     private func changed() {
@@ -67,47 +73,32 @@ public final class Prefs: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.didAttemptLoginItem) }
     }
 
-    public var autoPaste: Bool {
-        get { defaults.bool(forKey: Key.autoPaste) }
-        set { defaults.set(newValue, forKey: Key.autoPaste); changed() }
+    /// 0 keeps every entry (the default); a positive value caps the history length.
+    public var maxItems: Int {
+        get { max(0, defaults.integer(forKey: Key.maxItems)) }
+        set { defaults.set(max(0, newValue), forKey: Key.maxItems); changed() }
     }
 
-    public var maxItems: Int {
-        get { min(max(defaults.integer(forKey: Key.maxItems), 50), 2000) }
-        set { defaults.set(min(max(newValue, 50), 2000), forKey: Key.maxItems); changed() }
-    }
+    public var keepsEverything: Bool { maxItems == Self.unlimitedItems }
 
     public var recordImages: Bool {
         get { defaults.bool(forKey: Key.recordImages) }
         set { defaults.set(newValue, forKey: Key.recordImages); changed() }
     }
 
-    public var maxImageBytes: Int {
+    public var hotKeyTrigger: HotKeyTrigger {
         get {
-            let value = defaults.integer(forKey: Key.maxImageBytes)
-            return value > 0 ? value : 20 * 1024 * 1024
-        }
-        set { defaults.set(newValue, forKey: Key.maxImageBytes); changed() }
-    }
-
-    public var maxTotalImageBytes: Int {
-        get {
-            let value = defaults.integer(forKey: Key.maxTotalImageBytes)
-            return value > 0 ? value : 500 * 1024 * 1024
-        }
-        set { defaults.set(newValue, forKey: Key.maxTotalImageBytes); changed() }
-    }
-
-    public var hotKey: KeyCombo {
-        get {
-            let code = UInt32(defaults.integer(forKey: Key.hotKeyCode))
-            let modifiers = UInt32(defaults.integer(forKey: Key.hotKeyModifiers))
-            let combo = KeyCombo(keyCode: code, modifiers: modifiers)
-            return combo.hasModifier ? combo : .default
+            if let raw = defaults.string(forKey: Key.hotKeyTrigger),
+               let data = raw.data(using: .utf8),
+               let trigger = try? JSONDecoder().decode(HotKeyTrigger.self, from: data) {
+                return trigger
+            }
+            return .default
         }
         set {
-            defaults.set(Int(newValue.keyCode), forKey: Key.hotKeyCode)
-            defaults.set(Int(newValue.modifiers), forKey: Key.hotKeyModifiers)
+            guard let data = try? JSONEncoder().encode(newValue),
+                  let raw = String(data: data, encoding: .utf8) else { return }
+            defaults.set(raw, forKey: Key.hotKeyTrigger)
             changed()
         }
     }
@@ -127,11 +118,8 @@ public final class Prefs: @unchecked Sendable {
         return ignoredBundleIDs.contains(bundleID)
     }
 
+    /// Images are never capped and no longer configurable; only the entry count is a limit.
     public var limits: ClipLimits {
-        ClipLimits(
-            maxItems: maxItems,
-            maxImageBytes: maxImageBytes,
-            maxTotalImageBytes: maxTotalImageBytes
-        )
+        ClipLimits(maxItems: maxItems)
     }
 }

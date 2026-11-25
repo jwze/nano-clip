@@ -1,5 +1,17 @@
 import AppKit
 
+/// One raw image representation lifted from the pasteboard without decoding or transcoding.
+public struct ImageCandidate: Sendable, Equatable {
+    /// Pasteboard type as declared by the source app, e.g. `public.png`.
+    public var uti: String
+    public var data: Data
+
+    public init(uti: String, data: Data) {
+        self.uti = uti
+        self.data = data
+    }
+}
+
 public enum PasteboardReader {
     static let plainTextTypes: Set<String> = [
         "public.utf8-plain-text",
@@ -11,30 +23,61 @@ public enum PasteboardReader {
 
     /// Reads one pasteboard state into plain values. Text is always plain: rich payloads
     /// (`rtf`/`html`) are flattened to their string when no plain-text representation exists.
+    ///
+    /// A file copy is never inspected further: Finder puts the file *name* on the pasteboard as
+    /// text, which is how file names used to end up in the history.
     public static func snapshot(from pasteboard: NSPasteboard, sourceApp: String?) -> PasteboardSnapshot? {
         let pasteboardTypes = Set((pasteboard.types ?? []).map(\.rawValue))
         guard let item = pasteboard.pasteboardItems?.first else { return nil }
         var types = Set(item.types.map(\.rawValue))
         types.formUnion(pasteboardTypes)
 
-        let hasTextType = !types.isDisjoint(with: plainTextTypes) || !types.isDisjoint(with: richTextTypes)
-        let hasFileType = !types.isDisjoint(with: CaptureRules.fileTypes)
+        if !types.isDisjoint(with: CaptureRules.fileTypes) {
+            return PasteboardSnapshot(types: types, sourceApp: sourceApp)
+        }
 
-        // A Finder file copy advertises `public.file-url`; only read text when the payload really
-        // carries a text type, otherwise `.string` would hand back a file path.
+        let hasTextType = !types.isDisjoint(with: plainTextTypes) || !types.isDisjoint(with: richTextTypes)
         var text: String?
-        if !hasFileType || hasTextType {
+        if hasTextType {
             text = plainText(pasteboard: pasteboard, item: item)
         }
 
-        var png: Data?
-        var tiff: Data?
+        var images: [ImageCandidate] = []
         if text == nil {
-            png = item.data(forType: .png) ?? pasteboard.data(forType: .png)
-            tiff = item.data(forType: .tiff) ?? pasteboard.data(forType: .tiff)
+            images = imageCandidates(pasteboard: pasteboard, item: item)
         }
 
-        return PasteboardSnapshot(types: types, string: text, tiff: tiff, png: png, sourceApp: sourceApp)
+        return PasteboardSnapshot(
+            types: types,
+            string: text,
+            images: images,
+            sourceApp: sourceApp
+        )
+    }
+
+    /// Every image representation on the pasteboard, in the order the source app listed them so
+    /// the stored file keeps the format the user actually copied.
+    static func imageCandidates(pasteboard: NSPasteboard, item: NSPasteboardItem) -> [ImageCandidate] {
+        var seen = Set<String>()
+        var candidates: [ImageCandidate] = []
+        for type in item.types + (pasteboard.types ?? []) {
+            let uti = type.rawValue
+            guard ImageFormats.isImageUTI(uti), seen.insert(uti).inserted else { continue }
+            guard let data = item.data(forType: type) ?? pasteboard.data(forType: type), !data.isEmpty else {
+                continue
+            }
+            candidates.append(ImageCandidate(uti: uti, data: data))
+        }
+        // The pasteboard's own order is usually already the source app's preference; these two
+        // only matter when that order is empty (e.g. a lazy provider that failed above).
+        if candidates.isEmpty {
+            for type in [NSPasteboard.PasteboardType.png, .tiff] {
+                if let data = item.data(forType: type) ?? pasteboard.data(forType: type), !data.isEmpty {
+                    candidates.append(ImageCandidate(uti: type.rawValue, data: data))
+                }
+            }
+        }
+        return candidates
     }
 
     static func plainText(pasteboard: NSPasteboard, item: NSPasteboardItem) -> String? {

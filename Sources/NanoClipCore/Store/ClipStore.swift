@@ -10,7 +10,9 @@ public final class ClipStore: @unchecked Sendable {
     private let db: SQLiteDatabase
     private let images: ImageStore
 
-    private static let columns = "id, kind, content, image_path, image_bytes, source_app, created_at, pinned, truncated"
+    private static let columns = """
+    id, kind, content, image_path, image_bytes, image_uti, source_app, created_at, truncated, category
+    """
 
     private static let schema = """
     PRAGMA journal_mode=WAL;
@@ -23,13 +25,13 @@ public final class ClipStore: @unchecked Sendable {
         content TEXT,
         image_path TEXT,
         image_bytes INTEGER NOT NULL DEFAULT 0,
+        image_uti TEXT,
         hash TEXT NOT NULL UNIQUE,
         source_app TEXT,
         created_at REAL NOT NULL,
-        pinned INTEGER NOT NULL DEFAULT 0,
-        truncated INTEGER NOT NULL DEFAULT 0
+        truncated INTEGER NOT NULL DEFAULT 0,
+        category INTEGER NOT NULL DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_items_order ON items(pinned DESC, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_items_created ON items(created_at DESC);
     """
 
@@ -41,6 +43,61 @@ public final class ClipStore: @unchecked Sendable {
         images = try ImageStore(directory: imageDirectory)
         db = try SQLiteDatabase(path: directory.appendingPathComponent("history.sqlite3").path)
         try db.exec(Self.schema)
+        try migrate()
+    }
+
+    /// Adds the columns introduced after 1.0.0 to an existing database and backfills them, so a
+    /// history collected by an older build keeps working (and gains its categories).
+    private func migrate() throws {
+        let existing = try Set(columnNames())
+        var addedCategory = false
+        if !existing.contains("category") {
+            try db.exec("ALTER TABLE items ADD COLUMN category INTEGER NOT NULL DEFAULT 0")
+            addedCategory = true
+        }
+        if !existing.contains("image_uti") {
+            try db.exec("ALTER TABLE items ADD COLUMN image_uti TEXT")
+            try db.exec("""
+            UPDATE items SET image_uti = 'public.png'
+            WHERE kind = \(ClipKind.image.rawValue) AND image_uti IS NULL
+            """)
+        }
+        try db.exec("CREATE INDEX IF NOT EXISTS idx_items_category ON items(category, created_at DESC)")
+        if addedCategory {
+            try backfillCategories()
+        }
+    }
+
+    private func columnNames() throws -> [String] {
+        let statement = try db.statement("PRAGMA table_info(items)")
+        statement.reset()
+        var names: [String] = []
+        while try statement.step() {
+            if let name = statement.text(1) { names.append(name) }
+        }
+        return names
+    }
+
+    private func backfillCategories() throws {
+        try db.exec("""
+        UPDATE items SET category = \(ClipCategory.image.rawValue)
+        WHERE kind = \(ClipKind.image.rawValue)
+        """)
+        let select = try db.statement("SELECT id, content FROM items WHERE kind = 0 AND category = 0")
+        select.reset()
+        var links: [Int64] = []
+        while try select.step() {
+            let id = select.int(0)
+            if ClipCategory.isLink(select.text(1)) { links.append(id) }
+        }
+        guard !links.isEmpty else { return }
+        let update = try db.statement("UPDATE items SET category = ? WHERE id = ?")
+        for id in links {
+            update.reset()
+            update.bind(1, int: ClipCategory.link.rawValue)
+            update.bind(2, int: id)
+            _ = try update.step()
+        }
     }
 
     // MARK: - Insert
@@ -53,6 +110,7 @@ public final class ClipStore: @unchecked Sendable {
         limits: ClipLimits = .default
     ) throws -> InsertResult {
         let hash = Hashing.sha256Hex("t" + text)
+        let category = ClipCategory.detect(kind: .text, text: text)
         return try queue.sync {
             let now = Date().timeIntervalSince1970
             if let existing = try item(hash: hash) {
@@ -61,8 +119,8 @@ public final class ClipStore: @unchecked Sendable {
                 return .deduped(try itemInternal(id: existing.id) ?? existing)
             }
             let statement = try db.statement("""
-            INSERT INTO items(kind, content, image_path, image_bytes, hash, source_app, created_at, pinned, truncated)
-            VALUES(?, ?, NULL, 0, ?, ?, ?, 0, ?)
+            INSERT INTO items(kind, content, image_path, image_bytes, image_uti, hash, source_app, created_at, truncated, category)
+            VALUES(?, ?, NULL, 0, NULL, ?, ?, ?, ?, ?)
             """)
             statement.reset()
             statement.bind(1, int: ClipKind.text.rawValue)
@@ -71,6 +129,7 @@ public final class ClipStore: @unchecked Sendable {
             statement.bind(4, text: sourceApp)
             statement.bind(5, double: now)
             statement.bind(6, bool: truncated)
+            statement.bind(7, int: category.rawValue)
             _ = try statement.step()
             let id = db.lastInsertRowID
             let stored = try itemInternal(id: id)
@@ -80,18 +139,16 @@ public final class ClipStore: @unchecked Sendable {
         }
     }
 
+    /// Stores image bytes verbatim — the original format is kept, nothing is re-encoded.
     @discardableResult
     public func insertImage(
-        png: Data,
+        _ payload: ImagePayload,
         sourceApp: String?,
         limits: ClipLimits = .default
     ) throws -> InsertResult {
-        guard png.count <= limits.maxImageBytes else {
-            return .rejected("图片超过单图上限（\(png.count) > \(limits.maxImageBytes) 字节）")
-        }
-        var payload = Data("i".utf8)
-        payload.append(png)
-        let hash = Hashing.sha256Hex(payload)
+        var hashInput = Data("i".utf8)
+        hashInput.append(payload.data)
+        let hash = Hashing.sha256Hex(hashInput)
         return try queue.sync {
             let now = Date().timeIntervalSince1970
             if let existing = try item(hash: hash) {
@@ -99,19 +156,25 @@ public final class ClipStore: @unchecked Sendable {
                 try trimInternal(limits)
                 return .deduped(try itemInternal(id: existing.id) ?? existing)
             }
-            let path = try images.write(png: png, hash: hash)
+            let path = try images.write(
+                data: payload.data,
+                hash: hash,
+                fileExtension: payload.fileExtension
+            )
             do {
                 let statement = try db.statement("""
-                INSERT INTO items(kind, content, image_path, image_bytes, hash, source_app, created_at, pinned, truncated)
-                VALUES(?, NULL, ?, ?, ?, ?, ?, 0, 0)
+                INSERT INTO items(kind, content, image_path, image_bytes, image_uti, hash, source_app, created_at, truncated, category)
+                VALUES(?, NULL, ?, ?, ?, ?, ?, ?, 0, ?)
                 """)
                 statement.reset()
                 statement.bind(1, int: ClipKind.image.rawValue)
                 statement.bind(2, text: path)
-                statement.bind(3, int: png.count)
-                statement.bind(4, text: hash)
-                statement.bind(5, text: sourceApp)
-                statement.bind(6, double: now)
+                statement.bind(3, int: payload.data.count)
+                statement.bind(4, text: payload.uti)
+                statement.bind(5, text: hash)
+                statement.bind(6, text: sourceApp)
+                statement.bind(7, double: now)
+                statement.bind(8, int: ClipCategory.image.rawValue)
                 _ = try statement.step()
             } catch {
                 images.remove(relativePath: path)
@@ -127,22 +190,53 @@ public final class ClipStore: @unchecked Sendable {
 
     // MARK: - Query
 
-    public func fetch(query: String = "", limit: Int = 200) -> [ClipItem] {
+    public func fetch(
+        query: String = "",
+        category: ClipCategory? = nil,
+        dateRange: ClipDateRange = .all,
+        limit: Int = 300
+    ) -> [ClipItem] {
         (try? queue.sync { () -> [ClipItem] in
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            let sql = """
-            SELECT \(Self.columns) FROM items
-            WHERE (? = '' OR (kind = 0 AND (content LIKE ? ESCAPE '\\' OR IFNULL(source_app, '') LIKE ? ESCAPE '\\')))
-            ORDER BY pinned DESC, created_at DESC
-            LIMIT ?
-            """
+            var conditions: [String] = []
+            var bindings: [Binding] = []
+
+            if !trimmed.isEmpty {
+                // Images carry no text, so a search always means "text or its source app".
+                conditions.append(
+                    "(kind = 0 AND (content LIKE ? ESCAPE '\\' OR IFNULL(source_app, '') LIKE ? ESCAPE '\\'))"
+                )
+                let pattern = "%\(Self.escapeLike(trimmed))%"
+                bindings.append(.text(pattern))
+                bindings.append(.text(pattern))
+            }
+            if let category {
+                conditions.append("category = ?")
+                bindings.append(.int(category.rawValue))
+            }
+            let (from, to) = dateRange.bounds()
+            if let from {
+                conditions.append("created_at >= ?")
+                bindings.append(.double(from.timeIntervalSince1970))
+            }
+            if let to {
+                conditions.append("created_at < ?")
+                bindings.append(.double(to.timeIntervalSince1970))
+            }
+
+            var sql = "SELECT \(Self.columns) FROM items"
+            if !conditions.isEmpty {
+                sql += " WHERE " + conditions.joined(separator: " AND ")
+            }
+            sql += " ORDER BY created_at DESC LIMIT ?"
+
             let statement = try db.statement(sql)
             statement.reset()
-            statement.bind(1, text: trimmed)
-            let pattern = "%\(Self.escapeLike(trimmed))%"
-            statement.bind(2, text: pattern)
-            statement.bind(3, text: pattern)
-            statement.bind(4, int: max(1, limit))
+            for (index, binding) in bindings.enumerated() {
+                binding.apply(to: statement, at: Int32(index + 1))
+            }
+            statement.bind(Int32(bindings.count + 1), int: max(1, limit))
+
             var result: [ClipItem] = []
             while try statement.step() {
                 result.append(item(from: statement))
@@ -151,7 +245,7 @@ public final class ClipStore: @unchecked Sendable {
         }) ?? []
     }
 
-public func item(id: Int64) -> ClipItem? {
+    public func item(id: Int64) -> ClipItem? {
         (try? queue.sync { try itemInternal(id: id) }) ?? nil
     }
 
@@ -168,6 +262,15 @@ public func item(id: Int64) -> ClipItem? {
         return images.url(for: path)
     }
 
+    /// UTI to write the image back with. Rows created before the `image_uti` column fall back to
+    /// the extension of the stored file.
+    public func imageUTI(for item: ClipItem) -> String {
+        if let uti = item.imageUTI, !uti.isEmpty { return uti }
+        guard let path = item.imagePath else { return "public.png" }
+        let ext = (path as NSString).pathExtension
+        return ImageFormats.uti(forPathExtension: ext)
+    }
+
     public func statistics() -> ClipStatistics {
         (try? queue.sync { try statsInternal() }) ?? .empty
     }
@@ -180,16 +283,6 @@ public func item(id: Int64) -> ClipItem? {
 
     public func touch(id: Int64) {
         try? queue.sync { try touchInternal(id: id, at: Date().timeIntervalSince1970, sourceApp: nil) }
-    }
-
-    public func setPinned(id: Int64, pinned: Bool) {
-        try? queue.sync {
-            let statement = try db.statement("UPDATE items SET pinned = ? WHERE id = ?")
-            statement.reset()
-            statement.bind(1, bool: pinned)
-            statement.bind(2, int: id)
-            _ = try statement.step()
-        }
     }
 
     public func delete(id: Int64) {
@@ -216,7 +309,7 @@ public func item(id: Int64) -> ClipItem? {
         try? queue.sync { try trimInternal(limits) }
     }
 
-    /// Removes PNG files that no row references (crash-safety net). Returns the removed count.
+    /// Removes image files that no row references (crash-safety net). Returns the removed count.
     @discardableResult
     public func gcOrphanImages() -> Int {
         (try? queue.sync { () -> Int in
@@ -232,6 +325,20 @@ public func item(id: Int64) -> ClipItem? {
 
     // MARK: - Internals (queue-isolated)
 
+    private enum Binding {
+        case int(Int)
+        case text(String)
+        case double(Double)
+
+        func apply(to statement: Statement, at index: Int32) {
+            switch self {
+            case .int(let value): statement.bind(index, int: value)
+            case .text(let value): statement.bind(index, text: value)
+            case .double(let value): statement.bind(index, double: value)
+            }
+        }
+    }
+
     private func item(hash: String) throws -> ClipItem? {
         let statement = try db.statement("SELECT \(Self.columns) FROM items WHERE hash = ?")
         statement.reset()
@@ -244,12 +351,13 @@ public func item(id: Int64) -> ClipItem? {
         ClipItem(
             id: statement.int(0),
             kind: ClipKind(rawValue: Int(statement.int(1))) ?? .text,
+            category: ClipCategory(rawValue: Int(statement.int(9))),
             text: statement.text(2),
             imagePath: statement.text(3),
+            imageUTI: statement.text(5),
             imageBytes: Int(statement.int(4)),
-            sourceApp: statement.text(5),
-            createdAt: Date(timeIntervalSince1970: statement.double(6)),
-            pinned: statement.bool(7),
+            sourceApp: statement.text(6),
+            createdAt: Date(timeIntervalSince1970: statement.double(7)),
             truncated: statement.bool(8)
         )
     }
@@ -278,10 +386,13 @@ public func item(id: Int64) -> ClipItem? {
         )
     }
 
+    /// Only the entry count is enforced: images are kept in their original size and format, so
+    /// there is no byte budget to trim against.
     private func trimInternal(_ limits: ClipLimits) throws {
-        let maxItems = max(0, limits.maxItems)
+        let maxItems = limits.maxItems
+        guard maxItems > 0 else { return }
         let overflow = try db.statement(
-            "SELECT id, image_path FROM items WHERE pinned = 0 ORDER BY created_at DESC LIMIT -1 OFFSET ?"
+            "SELECT id, image_path FROM items ORDER BY created_at DESC LIMIT -1 OFFSET ?"
         )
         overflow.reset()
         overflow.bind(1, int: maxItems)
@@ -290,19 +401,6 @@ public func item(id: Int64) -> ClipItem? {
             doomed.append((overflow.int(0), overflow.text(1)))
         }
         try deleteRows(doomed)
-
-        var total = try statsInternal().imageBytes
-        guard total > limits.maxTotalImageBytes else { return }
-        let candidates = try db.statement(
-            "SELECT id, image_path, image_bytes FROM items WHERE pinned = 0 AND image_path IS NOT NULL ORDER BY created_at ASC"
-        )
-        candidates.reset()
-        var bySize: [(Int64, String?)] = []
-        while total > limits.maxTotalImageBytes, try candidates.step() {
-            total -= Int(candidates.int(2))
-            bySize.append((candidates.int(0), candidates.text(1)))
-        }
-        try deleteRows(bySize)
     }
 
     private func deleteRows(_ rows: [(Int64, String?)]) throws {

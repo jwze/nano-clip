@@ -4,7 +4,6 @@ import NanoClipCore
 @MainActor
 final class HistoryPanelController: NSObject, NSWindowDelegate {
     private let store: ClipStore
-    private let prefs: Prefs
 
     private var panel: HistoryPanel?
     private var contentController: HistoryViewController?
@@ -19,13 +18,10 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
 
     var onActivate: ((ClipItem) -> Void)?
     var onDelete: ((ClipItem) -> Void)?
-    var onTogglePin: ((ClipItem) -> Void)?
     var onOpenPreferences: (() -> Void)?
-    var onRequestAccessibility: (() -> Void)?
 
-    init(store: ClipStore, prefs: Prefs) {
+    init(store: ClipStore) {
         self.store = store
-        self.prefs = prefs
         super.init()
     }
 
@@ -41,14 +37,9 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         captureTargetApplication()
 
         let panel = ensurePanel()
-        let controller = HistoryViewController(store: store, prefs: prefs)
+        let controller = HistoryViewController(store: store)
         controller.onActivate = { [weak self] item in self?.onActivate?(item) }
         controller.onDelete = { [weak self] item in self?.onDelete?(item) }
-        controller.onTogglePin = { [weak self] item in self?.onTogglePin?(item) }
-        controller.onRequestAccessibility = { [weak self] in
-            self?.hide()
-            self?.onRequestAccessibility?()
-        }
         panel.contentViewController = controller
         contentController = controller
         // Assigning a content view controller re-sizes the panel to its fitting size; force the
@@ -199,9 +190,6 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
             return true
         case 51 where flags.contains(.command):  // ⌘⌫
             contentController?.deleteSelected()
-            return true
-        case 35 where flags.contains(.command):  // ⌘P
-            contentController?.togglePinSelected()
             return true
         case 43 where flags.contains(.command):  // ⌘,
             hide()

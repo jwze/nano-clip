@@ -1,7 +1,7 @@
 import Foundation
 
-/// Turns pasteboard snapshots into stored items. Hashing, PNG encoding and SQLite writes all
-/// happen on one background queue so the 200–350ms poll never blocks the main thread for long.
+/// Turns pasteboard snapshots into stored items. Hashing and SQLite writes all happen on one
+/// background queue so the 200–350ms poll never blocks the main thread for long.
 @MainActor
 public final class CaptureService {
     public var onHistoryChanged: (@MainActor () -> Void)?
@@ -58,22 +58,28 @@ public final class CaptureService {
                 Log.info("skip: imagesDisabled")
                 return
             }
-            let tiff = snapshot.tiff
-            let png = snapshot.png
+            let candidates = snapshot.images
             let sourceApp = snapshot.sourceApp
             let limits = prefs.limits
             workQueue.async { [store] in
                 autoreleasepool {
-                    guard let encoded = ImageEncoder.normalizedPNG(tiff: tiff, png: png) else {
+                    // Keep the first representation that actually decodes; its bytes are stored
+                    // untouched, so the original format survives.
+                    guard let payload = candidates.lazy.compactMap({ candidate in
+                        ImageFormats.payload(data: candidate.data, declaredUTI: candidate.uti)
+                    }).first else {
                         Log.info("skip: imageUnreadable")
                         return
                     }
                     do {
-                        let result = try store.insertImage(png: encoded, sourceApp: sourceApp, limits: limits)
+                        let result = try store.insertImage(payload, sourceApp: sourceApp, limits: limits)
                         switch result {
-                        case .inserted: Log.info("captured image (\(encoded.count) bytes)")
-                        case .deduped: Log.info("deduped image (\(encoded.count) bytes)")
-                        case .rejected(let reason): Log.error("image rejected: \(reason)")
+                        case .inserted:
+                            Log.info("captured image (\(payload.uti), \(payload.data.count) bytes)")
+                        case .deduped:
+                            Log.info("deduped image (\(payload.data.count) bytes)")
+                        case .rejected(let reason):
+                            Log.error("image rejected: \(reason)")
                         }
                         if case .rejected = result { return }
                         Task { @MainActor in notify() }

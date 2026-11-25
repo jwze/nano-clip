@@ -25,8 +25,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func configureButton() {
         guard let button = statusItem.button else { return }
-        let image = NSImage(systemSymbolName: "list.clipboard", accessibilityDescription: "NanoClip")
-            ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "NanoClip")
+        // A configured template symbol reads cleaner than the default-size glyph at 18pt.
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let image = (NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "NanoClip")
+            ?? NSImage(systemSymbolName: "list.clipboard", accessibilityDescription: "NanoClip"))?
+            .withSymbolConfiguration(configuration)
         image?.isTemplate = true
         button.image = image
         button.toolTip = "NanoClip 剪贴板历史"
@@ -39,6 +42,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         historyItem.target = self
         historyItem.action = #selector(showHistory)
+        historyItem.image = Theme.symbol("clock.arrow.circlepath", pointSize: 13)
         menu.addItem(historyItem)
 
         preferencesItem.title = "偏好设置…"
@@ -46,6 +50,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         preferencesItem.action = #selector(showPreferences)
         preferencesItem.keyEquivalent = ","
         preferencesItem.keyEquivalentModifierMask = [.command]
+        preferencesItem.image = Theme.symbol("gearshape", pointSize: 13)
         menu.addItem(preferencesItem)
 
         menu.addItem(.separator())
@@ -53,7 +58,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         loginItemCheckbox.title = "登录时自动启动"
         loginItemCheckbox.target = self
         loginItemCheckbox.action = #selector(toggleLoginItem)
+        loginItemCheckbox.image = Theme.symbol("power", pointSize: 13)
         menu.addItem(loginItemCheckbox)
+
+        let aboutItem = NSMenuItem(title: "关于 NanoClip", action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        aboutItem.image = Theme.symbol("info.circle", pointSize: 13)
+        menu.addItem(aboutItem)
 
         menu.addItem(.separator())
 
@@ -62,6 +73,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         quitItem.action = #selector(quit)
         quitItem.keyEquivalent = "q"
         quitItem.keyEquivalentModifierMask = [.command]
+        quitItem.image = Theme.symbol("xmark.circle", pointSize: 13)
         menu.addItem(quitItem)
 
         Log.info(
@@ -90,6 +102,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func toggleLoginItem() {
         onToggleLoginItem?()
     }
+    @objc private func showAbout() {
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: AppInfo.name,
+            .applicationVersion: AppInfo.version,
+            .credits: NSAttributedString(
+                string: "本地剪贴板历史 · 数据只保存在本机",
+                attributes: [.font: NSFont.systemFont(ofSize: 11)]
+            ),
+        ])
+        NSApp.activate()
+    }
+
 
     @objc private func quit() {
         NSApp.terminate(nil)

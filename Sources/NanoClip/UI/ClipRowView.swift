@@ -1,15 +1,22 @@
 import AppKit
 
-/// One history row: icon or thumbnail, single-line preview, source/time subtitle, pin marker.
+/// One history row: icon well or thumbnail, single-line preview, source/time subtitle.
+///
+/// The row paints its own rounded selection pill instead of using `NSTableView`'s stock full-width
+/// highlight, which is what makes the list read as a modern popover rather than a 2005 table.
 @MainActor
 final class ClipRowView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("ClipRow")
-    static let rowHeight: CGFloat = 48
+    static var rowHeight: CGFloat { Theme.Metrics.rowHeight }
 
+    private let pill = FlippedView()
+    private let iconWell = FlippedView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
-    private let pinLabel = NSTextField(labelWithString: "📌")
+
+    private var isPillSelected = false
+    private var isHovered = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -20,62 +27,139 @@ final class ClipRowView: NSTableCellView {
         fatalError("init(coder:) is not used")
     }
 
+    // MARK: - Setup
+
     private func setup() {
         identifier = Self.reuseIdentifier
+        wantsLayer = true
 
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-        iconView.wantsLayer = true
-        iconView.layer?.cornerRadius = 5
-        iconView.layer?.masksToBounds = true
+        pill.wantsLayer = true
+        pill.layer?.cornerRadius = Theme.Metrics.rowCornerRadius
+        pill.layer?.borderWidth = 1
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(pill)
+
+        iconWell.wantsLayer = true
+        iconWell.layer?.cornerRadius = 7
+        iconWell.translatesAutoresizingMaskIntoConstraints = false
+        iconWell.addSubview(iconView)
+
+        iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.contentTintColor = .secondaryLabelColor
+        iconView.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 13)
+        titleLabel.font = Theme.Font.rowTitle
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.cell?.truncatesLastVisibleLine = true
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.font = .systemFont(ofSize: 10.5)
+        subtitleLabel.font = Theme.Font.rowSubtitle
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = 1
         subtitleLabel.cell?.truncatesLastVisibleLine = true
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        pinLabel.translatesAutoresizingMaskIntoConstraints = false
-        pinLabel.font = .systemFont(ofSize: 11)
-        pinLabel.isHidden = true
-        pinLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        addSubview(iconView)
+        addSubview(iconWell)
         addSubview(titleLabel)
         addSubview(subtitleLabel)
-        addSubview(pinLabel)
 
+        let inset = Theme.Metrics.rowSelectionInset
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 34),
-            iconView.heightAnchor.constraint(equalToConstant: 34),
+            pill.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+            pill.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: pinLabel.leadingAnchor, constant: -8),
+            iconWell.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 9),
+            iconWell.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconWell.widthAnchor.constraint(equalToConstant: 30),
+            iconWell.heightAnchor.constraint(equalToConstant: 30),
+
+            iconView.centerXAnchor.constraint(equalTo: iconWell.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconWell.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
+
+            titleLabel.leadingAnchor.constraint(equalTo: iconWell.trailingAnchor, constant: 10),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(inset + 11)),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
-            subtitleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-
-            pinLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            pinLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            subtitleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(inset + 11)),
         ])
+
+        refreshPill()
     }
 
-    func configure(icon: NSImage?, text: String, subtitle: String, pinned: Bool) {
+    // MARK: - Content
+
+    func configure(icon: NSImage?, text: String, subtitle: String, isImage: Bool) {
         iconView.image = icon
+        // Thumbnails keep their own colours; text rows use a tinted glyph on a soft well.
+        iconView.contentTintColor = isImage ? nil : .secondaryLabelColor
+        iconView.imageScaling = isImage ? .scaleProportionallyUpOrDown : .scaleProportionallyDown
+        iconWell.isHidden = false
         titleLabel.stringValue = text
         subtitleLabel.stringValue = subtitle
-        pinLabel.isHidden = !pinned
+    }
+
+    func setPillSelected(_ selected: Bool) {
+        guard selected != isPillSelected else { return }
+        isPillSelected = selected
+        refreshPill()
+    }
+
+    func setHovered(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
+        refreshPill()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshPill()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self
+            )
+        )
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setHovered(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(false)
+    }
+
+    private func refreshPill() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let background: NSColor?
+            let border: NSColor?
+            if isPillSelected {
+                background = Theme.rowSelection
+                border = Theme.rowSelectionBorder
+            } else if isHovered {
+                background = Theme.rowHover
+                border = .clear
+            } else {
+                background = .clear
+                border = .clear
+            }
+            pill.layer?.backgroundColor = background?.cgColor
+            pill.layer?.borderColor = border?.cgColor
+            iconWell.layer?.backgroundColor = Theme.iconWell.cgColor
+        }
     }
 }
