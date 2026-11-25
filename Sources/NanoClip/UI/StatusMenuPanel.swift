@@ -102,8 +102,6 @@ final class HUDMenuRow: NSView {
 /// `NSMenu` cannot be restyled, so the popup is a real window that behaves like a menu.
 @MainActor
 final class StatusMenuController: NSObject, NSWindowDelegate {
-    /// Shown as the popup's status line, e.g. "双击 ⌥ 呼出".
-    var hotKeyDisplay: () -> String = { "" }
     var itemCount: () -> Int = { 0 }
     var onShowPreferences: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -111,6 +109,12 @@ final class StatusMenuController: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var keyMonitor: Any?
     private var globalClickMonitor: Any?
+    /// When the popup last dismissed itself. The outside-click monitor fires on mouse-down, before
+    /// the status button's mouse-up that would re-open it, so that same click must be swallowed.
+    private var lastDismissAt: TimeInterval = 0
+
+    /// How long after a dismissal the status button ignores a click, in seconds.
+    private static let dismissGuard: TimeInterval = 0.25
 
     var isVisible: Bool {
         panel?.isVisible ?? false
@@ -119,9 +123,13 @@ final class StatusMenuController: NSObject, NSWindowDelegate {
     func toggle(relativeTo button: NSStatusBarButton) {
         if isVisible {
             hide()
-        } else {
-            show(relativeTo: button)
+            return
         }
+        // The click that just dismissed the popup still has a mouse-up on its way; if it lands here
+        // it must not re-open what the mouse-down already closed.
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastDismissAt > Self.dismissGuard else { return }
+        show(relativeTo: button)
     }
 
     private func show(relativeTo button: NSStatusBarButton) {
@@ -150,6 +158,9 @@ final class StatusMenuController: NSObject, NSWindowDelegate {
 
     func hide() {
         removeMonitors()
+        if let panel, panel.isVisible {
+            lastDismissAt = ProcessInfo.processInfo.systemUptime
+        }
         panel?.orderOut(nil)
         panel = nil
     }
@@ -196,7 +207,7 @@ final class StatusMenuController: NSObject, NSWindowDelegate {
             tracking: 2.4
         )
         let status = Theme.monoLabel(
-            "\(itemCount()) ITEMS  ·  \(hotKeyDisplay())",
+            "\(itemCount()) ITEMS",
             size: 8.5,
             weight: .regular,
             color: Theme.textTertiary,

@@ -8,14 +8,12 @@ final class StatusItemController: NSObject {
     private let menu = StatusMenuController()
 
     var onShowPreferences: (() -> Void)?
-    var hotKeyDisplay: () -> String = { "" }
     var itemCount: () -> Int = { 0 }
 
     override init() {
         super.init()
         configureButton()
 
-        menu.hotKeyDisplay = { [weak self] in self?.hotKeyDisplay() ?? "" }
         menu.itemCount = { [weak self] in self?.itemCount() ?? 0 }
         menu.onShowPreferences = { [weak self] in self?.onShowPreferences?() }
         menu.onQuit = { NSApp.terminate(nil) }

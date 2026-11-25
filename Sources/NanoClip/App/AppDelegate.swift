@@ -185,7 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startStatusItem() {
         let controller = StatusItemController()
-        controller.hotKeyDisplay = { [weak self] in self?.prefs.hotKeyTrigger.menuString ?? "" }
         controller.itemCount = { [weak self] in self?.store?.statistics().count ?? 0 }
         controller.onShowPreferences = { [weak self] in self?.showPreferences() }
         statusItemController = controller

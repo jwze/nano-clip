@@ -238,12 +238,9 @@ final class PreferencesViewController: NSViewController,
 
         stack.addArrangedSubview(sectionHeader("通用", latin: "GENERAL"))
         addCard([
-            toggleRow("登录时自动启动", toggle: launchAtLoginSwitch, hint: "随系统登录在后台运行，不打开窗口"),
+            toggleRow("登录时自动启动", toggle: launchAtLoginSwitch),
             indented(loginStatusLabel),
             settingRow("呼出快捷键", controls: [hotKeyButton, resetHotKeyButton]),
-            Theme.hairline(),
-            hintRow("默认双击 ⌥ 呼出；也可以点上面按钮后录一个组合键，Esc 取消录制。"),
-            hintRow("选中条目只会复制到剪贴板，不会自动粘贴；粘贴请按 ⌘V。"),
         ], to: stack)
 
         // MARK: 历史
@@ -284,7 +281,6 @@ final class PreferencesViewController: NSViewController,
             toggleRow("不限制保留条数", toggle: unlimitedItemsSwitch),
             settingRow("保留条数", controls: [maxItemsField, maxItemsStepper, captionLabel("条")]),
             toggleRow("记录图片（保持原始格式）", toggle: recordImagesSwitch),
-            hintRow("图片不压缩、不转换，也不设大小上限；只保存你复制时的那份数据。"),
             Theme.hairline(),
             settingRow("历史数据", controls: [historyStatsLabel, clearHistoryButton]),
         ], to: stack)
@@ -329,7 +325,6 @@ final class PreferencesViewController: NSViewController,
 
         stack.addArrangedSubview(sectionHeader("忽略的 App", latin: "EXCLUSIONS"))
         addCard([
-            hintRow("这些 App 复制的内容不会被记录。密码类 App 已默认加入。"),
             ignoredScrollView,
             ignoredButtons,
         ], to: stack)
@@ -361,7 +356,7 @@ final class PreferencesViewController: NSViewController,
         refreshRuntimeState()
         applyChrome()
 
-        preferredContentSize = NSSize(width: 580, height: 688)
+        preferredContentSize = NSSize(width: 580, height: 652)
     }
 
     private func buildHeader(in root: HUDSolidView) {
@@ -398,7 +393,9 @@ final class PreferencesViewController: NSViewController,
         root.addSubview(separator)
 
         NSLayoutConstraint.activate([
-            brand.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
+            // Clear of the traffic-light buttons: the window uses .fullSizeContentView, so the
+            // header shares the titlebar band and would otherwise sit on top of the close button.
+            brand.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 84),
             brand.centerYAnchor.constraint(equalTo: root.topAnchor, constant: 28),
 
             titles.leadingAnchor.constraint(equalTo: brand.trailingAnchor, constant: 10),
@@ -647,16 +644,8 @@ final class PreferencesViewController: NSViewController,
         return stack
     }
 
-    /// Dimmed explanatory line inside a card.
-    private func hintRow(_ text: String) -> NSView {
-        let label = Theme.label(text, font: Theme.Font.caption, color: Theme.textTertiary)
-        label.lineBreakMode = .byWordWrapping
-        label.maximumNumberOfLines = 2
-        return label
-    }
-
     /// Leading label with the switch pushed to the trailing edge.
-    private func toggleRow(_ title: String, toggle: NSSwitch, hint: String? = nil) -> NSView {
+    private func toggleRow(_ title: String, toggle: NSSwitch) -> NSView {
         let label = Theme.label(title, font: Theme.Font.body, color: Theme.textPrimary)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
@@ -665,15 +654,7 @@ final class PreferencesViewController: NSViewController,
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
-        guard let hint else { return row }
-
-        let hintLabel = Theme.label(hint, font: Theme.Font.caption, color: Theme.textTertiary)
-        let column = NSStackView(views: [row, hintLabel])
-        column.orientation = .vertical
-        column.alignment = .leading
-        column.spacing = 3
-        column.setHuggingPriority(.defaultLow, for: .horizontal)
-        return column
+        return row
     }
 
     /// Label at the leading edge, controls pushed to the trailing edge.
@@ -772,7 +753,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         viewController.onLoginItemChanged = onLoginItemChanged
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 688),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 652),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
