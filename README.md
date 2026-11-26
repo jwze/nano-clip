@@ -1,158 +1,110 @@
 # NanoClip
 
-轻量级 macOS 剪贴板历史工具：菜单栏常驻、无 Dock 图标、AppKit + 系统 SQLite、零第三方依赖。
-只保存**纯文本**和**图片**，**永不记录文件**，文本格式一律丢弃。
+轻量级 macOS 剪贴板历史工具。菜单栏常驻，无 Dock 图标；纯 AppKit + 系统 SQLite，零第三方依赖。
 
-```
-双击 ⌥ 呼出 → ↑↓ 选择 → 单击或 ↩ 复制 → ⌘V 粘贴
-```
+只保存**纯文本**和**图片**，永不记录文件。
 
-📖 **完整使用教程：[docs/USAGE.md](docs/USAGE.md)**（安装、授权、快捷键、偏好设置、数据清理、故障排查）
+## 特性
 
----
+- **极低占用** — 无 SwiftUI、无 xib，面板关闭即释放视图与缩略图缓存。空闲内存约 16 MB（phys_footprint），CPU ≈ 0.2%。
+- **双击 ⌥ 呼出** — 也可录制成任意组合键，不需要辅助功能或输入监控授权。
+- **纯文本** — 富文本只取文字，写回剪贴板时只写 `public.utf8-plain-text`。
+- **图片保持原格式** — PNG / JPEG / TIFF / HEIC 原样落盘，不压缩、不转码、不限大小；文件名即内容 SHA-256，天然去重。
+- **不记录文件** — 含 `public.file-url` 的粘贴板内容一律跳过，连文件名也不入库。
+- **分类与时间筛选** — 文本 / 链接 / 图片；今天 / 昨天 / 近 7 天 / 近 30 天。
+- **隐私保护** — 默认忽略 1Password、Bitwarden、钥匙串等应用，识别 concealed / transient 类型。
+- **只复制，不自动粘贴** — 不注入 ⌘V，因此不申请任何系统权限。
 
-## 功能一览
+## 系统要求
 
-| 能力 | 说明 |
-| --- | --- |
-| 剪贴板历史 | 轮询 `changeCount`（macOS 无变更通知）采集，自动去重；点击旧条目即复制并把它移回最前，支持搜索与删除 |
-| 极低内存占用 | 纯 AppKit（无 SwiftUI/xib）、面板隐藏即释放、缩略图 `NSCache` 有界、重活全在后台串行队列 |
-| 开机启动 | `SMAppService.mainApp`（macOS 13+），首次启动默认注册，可一键关闭 |
-| 不保留文本格式 | 采集时只取纯文本（必要时由 RTF/HTML 降级），写回剪贴板**只写** `public.utf8-plain-text` |
-| 支持图片 | **保持原始格式**：粘贴板给什么就存什么（PNG/JPEG/TIFF/HEIC…），不压缩、不转换、不限大小；文件名 = 内容 SHA-256，天然去重 |
-| 记录分类与时间 | 每条自动归入 文本 / 链接 / 图片，并显示绝对时间；面板可按分类或按时间（今天 / 昨天 / 近 7 天 / 近 30 天）筛选 |
-| 不记录文件 | 含 `public.file-url` 等文件类型直接跳过，连 Finder 复制时附带的文件名也不入库 |
-| 只做复制 | 写回剪贴板后激活回原 App，由你自己按 ⌘V，**不申请任何系统权限**、不注入事件 |
-| 隐私保护 | 默认忽略 1Password/Bitwarden/Keychain/Passwords 等，可自定义忽略 App；识别 concealed/transient 类型 |
-| 偏好设置 | 默认双击 ⌥ 呼出（可改成任意组合键）、开机自启、保留条数（默认不限制）、图片开关、忽略 App、清空历史 |
+macOS 14 Sonoma 或更高 · Xcode 命令行工具（Swift 6 工具链）
 
-## 安装（三步）
+## 安装
 
 ```bash
-./Scripts/build-app.sh      # release 构建 + 打包 .app + 生成图标 + ad-hoc 签名
-./Scripts/install.sh        # 复制到 /Applications 并启动
+git clone https://github.com/<owner>/NanoClip.git && cd NanoClip
+
+./Scripts/build-app.sh   # release 构建 → 生成图标 → 打包 build/NanoClip.app → 签名
+./Scripts/install.sh     # 复制到 /Applications 并启动
 ```
 
-首次使用：
+默认 ad-hoc 签名。如需稳定签名（推荐，避免每次构建后重新授权）：
 
-1. 菜单栏出现剪贴板图标（无 Dock 图标）。
-2. 默认呼出方式 **双击 ⌥（Option）**；在偏好设置里点一下录制按钮，双击任意修饰键或直接按组合键都能改。
-3. 不需要任何系统权限：双击 ⌥ 通过读取全局修饰键状态实现，选中条目只是写回剪贴板，粘贴由你按 ⌘V 完成。
+```bash
+SIGN_IDENTITY="NanoClip Local" ./Scripts/build-app.sh
+```
 
-> **签名提示**：默认 ad-hoc 签名（`SIGN_IDENTITY=-`）。想换成稳定证书签名可：
-> `SIGN_IDENTITY="NanoClip Local" ./Scripts/build-app.sh`。
+> 登录项注册（`SMAppService`）要求 App 位于 `/Applications`；`swift run` 直接运行裸二进制时该功能不可用。
 
-## 常用快捷键
+## 使用
+
+```
+复制内容 → 双击 ⌥ → ↑↓ 选择 → ↩（或单击行）→ ⌘V
+```
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 呼出/关闭历史面板 | 双击 `⌥`（可改成任意组合键） |
-| 复制选中项（单击行也可以） | `↩` |
-| 选择 | `↑` `↓` / 鼠标 |
+| 呼出 / 关闭面板 | 双击 `⌥`（可改成任意组合键） |
+| 选择 / 复制 | `↑` `↓` / `↩`（鼠标单击行等效） |
 | 关闭 | `esc` |
-| 删除当前项 | `⌘⌫` |
-| 设置 | `⌘,`（或面板左下角齿轮、菜单栏图标 → 设置…） |
-| 搜索 | 直接输入（含输入法拼音阶段即可实时过滤）；图片只在空查询时出现 |
-| 筛选 | 分类（全部 / 文本 / 链接 / 图片）+ 时间（全部 / 今天 / 昨天 / 近 7 天 / 近 30 天） |
+| 删除当前条目 | `⌘⌫` |
+| 偏好设置 | `⌘,` |
+| 搜索 | 直接输入（输入法拼音阶段即可实时过滤） |
 
-菜单栏图标点击后是一个自绘 HUD 弹窗，只有两项：**设置…** / **退出**（开机自启、快捷键等都在设置里）。
+点击旧条目不会新增记录，只会把它移回列表最前。
 
-面板本身也是自绘 HUD：白玻璃 + 青色霓虹，左侧竖排导航（品牌标 / 全部·文本·链接·图片 / 设置齿轮），
-右侧为搜索框、条目数与时间筛选、列表、底部按键提示。
+命令行参数：
 
-## 代码结构
+| 参数 | 作用 |
+| --- | --- |
+| `--show-history` | 启动即展开面板 |
+| `--show-preferences` | 启动即打开偏好设置 |
+| `--diagnostics` | 打印内存 / 条目数 / 登录项状态后退出 |
 
-```
-Sources/
-├─ NanoClipCore/                 # 纯逻辑，无窗口
-│  ├─ Store/      SQLite 薄封装、ClipStore、图片文件存储、模型
-│  ├─ Capture/    粘贴板读取、采集规则、文本归一化、原始格式识别、轮询、采集服务
-│  ├─ Paste/      纯文本/原格式图片写回剪贴板
-│  ├─ HotKey/     Carbon 组合键 + 双击修饰键监视 + 键位显示
-│  └─ Support/    Prefs、日志、哈希、路径
-└─ NanoClip/                     # AppKit 外壳
-   ├─ App/        AppDelegate、菜单栏、登录项、单实例、前台 App 跟踪
-   ├─ UI/         历史面板、列表行、缩略图缓存、偏好设置、快捷键录制
-   └─ Support/    进程内存读数（诊断用）
-Scripts/    build-app.sh  install.sh  Info.plist  GenerateAppIcon.swift
-Resources/  AppIcon.icns（由脚本生成，已 gitignore）
-```
-
-设计取舍：
-
-- **AppKit 而非 SwiftUI**：SwiftUI 运行时基线更高，本项目只为一个面板 + 一个偏好窗口，手写 Auto Layout 更省内存也更可控。
-- **轮询而非通知**：`NSPasteboard` 没有变更通知，0.35s + 0.2s leeway 的 `DispatchSourceTimer` 是标准做法；自身写入用 changeCount 白名单忽略，避免回环。
-- **内容寻址存图**：文件名即 SHA-256，重复截图不会重复占盘，也无需额外去重表。
-- **Carbon 热键 + 修饰键轮询**：组合键走 `RegisterEventHotKey`；双击 ⌥ 只能靠轮询 `CGEventSource.flagsState` 读取修饰键状态（全局键盘事件需要辅助功能权限，而状态查询不需要），所以两条路径都不申请任何系统权限。
-
-## 数据与目录
+## 数据与隐私
 
 ```
 ~/Library/Application Support/NanoClip/
-├─ history.sqlite3 (+ -wal/-shm)   # 元数据，WAL 模式
-├─ images/<sha256>.<ext>           # 图片实体（原格式），内容寻址，天然去重
-└─ NanoClip.log                    # 追加式日志（>512KB 自动截断）
+├─ history.sqlite3 (+ -wal / -shm)   # 元数据，WAL 模式
+├─ images/<sha256>.<ext>             # 图片实体，内容寻址
+└─ NanoClip.log                      # 追加式日志（>512 KB 自动截断）
 ```
 
-**只在本地明文保存**，不做云同步，不加密落盘。清空历史 = 删表 + 删 `images/`。
+- 数据只在本机明文保存：无云同步、无网络请求、不加密落盘。
+- 日志只记录条目数量 / 类型 / 耗时，不记录剪贴板内容。
 
-保留策略：默认**不限制条数**（也可在偏好设置里设一个上限，超限从最旧的开始删）。图片没有大小、总量上限，也不做任何裁剪或压缩。
-
-## 内存实测（本机 macOS / arm64）
-
-| 场景 | `ps -o rss` | `footprint`（≈ 活动监视器「内存」） |
-| --- | --- | --- |
-| 对照：空 AppKit 菜单栏 agent（仅 status item） | 68 MB | 9.7 MB |
-| NanoClip 空闲（面板从未打开） | 78 MB | 16 MB |
-| NanoClip 开合面板 20 次后 | 109 MB | 26 MB（进入平台期，不再增长） |
-
-- 空闲 CPU ≈ 0.1–0.2%（0.35s 的粘贴板轮询只在 `changeCount` 变化时工作；双击 ⌥ 需要 25ms 轮询一次修饰键状态，这是「不申请权限也要能识别双击」的代价）。
-- 面板隐藏时会把 `contentViewController` 整个释放（日志 `history view controller released`），缩略图缓存随之销毁。
-- RSS 包含 AppKit/Foundation 等**共享框架**页面，所以空 AppKit agent 也有 ~68 MB；NanoClip 自身增量约 6–10 MB。
-
-复现：
+卸载：
 
 ```bash
-footprint -p "$(pgrep -x NanoClip)"
-ps -o rss= -p "$(pgrep -x NanoClip)"
-/Applications/NanoClip.app/Contents/MacOS/NanoClip --diagnostics   # 内存/条目/登录项一览
+osascript -e 'quit app "NanoClip"'
+rm -rf /Applications/NanoClip.app ~/Library/Application\ Support/NanoClip
+defaults delete com.jvz.nanoclip
 ```
-
-## 运行期实测结论
-
-| 场景 | 结果 |
-| --- | --- |
-| 富文本（RTF + 纯文本降级）复制 | 入库为纯文本，无格式 |
-| 仅 RTF（无纯文本类型）复制 | 由 RTF 解码为纯文本后入库 |
-| Finder 复制文件 | 条目数不变（跳过，不会只把文件名记成文本） |
-| 密码类 concealed 载荷 | 条目数不变（跳过） |
-| PNG / JPEG / TIFF 截图 | 原样入库为 `<sha256>.<原始扩展名>`，字节数与粘贴板一致（`image_uti` 记录格式） |
-| 同一文本复制两次 | 仅 1 行，`created_at` 更新并移到最前 |
-| 点击列表里的旧条目 | 不新增行，该行时间戳刷新后排到最前 |
-| 双击 ⌥ 呼出 | 面板 420×620、搜索框聚焦、左栏分类导航、条目显示分类、来源与时间 |
-| 单击 / ↩ | 内容写回剪贴板，面板收起，焦点回到原应用 |
-| 登录项 | `launchAtLogin(system): 已启用` |
-
-复验命令见 [docs/USAGE.md](docs/USAGE.md#8-故障排查)。
-
-## 已知限制
-
-- 需要 **macOS 14+**（`SMAppService`、`NSVisualEffectView` 等）；目前只按本机 arm64 构建。
-- 只做复制：不会自动粘贴，也不申请辅助功能等任何系统权限。
-- 双击 ⌥ 依赖 `CGEventSource.flagsState` 轮询（约 25ms 一次），它只能看到修饰键状态，无法判断两次 ⌥ 之间是否按过别的键；极少数「⌥+字母」快速连打可能误触。遇到就改成一个组合键。
-- 不记录 Universal Clipboard（`com.apple.is-remote-clipboard`）与 `Transient/AutoGenerated` 类型的粘贴板内容。
-- 不含 iCloud 同步、加密存储、自动更新、文件/富文本条目。
-- 登录项注册要求 App 位于 `/Applications`（`SMAppService` 的约束），`build/NanoClip.app` 直接运行时会显示「无法定位应用」。
 
 ## 开发
 
 ```bash
-swift build                 # debug 构建
-./Scripts/build-app.sh      # release + 打包 .app + 签名
-./Scripts/install.sh        # 安装到 /Applications 并启动
-open -a NanoClip --args --show-history        # 启动即展开面板
-open -a NanoClip --args --show-preferences    # 启动即打开偏好设置
-/Applications/NanoClip.app/Contents/MacOS/NanoClip --diagnostics
+swift build                        # debug 构建
+swift run NanoClip --show-history  # 直接运行，无 .app 外壳
+./Scripts/build-app.sh             # release 打包 + ad-hoc 签名
 ```
 
-日志：`~/Library/Application Support/NanoClip/NanoClip.log`（同时写入统一日志 `subsystem=com.jvz.nanoclip`）。日志只记录条目数量/类型/耗时，**不记录剪贴板内容**。
+```
+Sources/
+├─ NanoClipCore/   纯逻辑：Store / Capture / Paste / HotKey / Support
+└─ NanoClip/       AppKit 外壳：App / UI / Support
+Scripts/           构建安装脚本、Info.plist、图标生成
+```
+
+设计取舍：AppKit 而非 SwiftUI（更低的运行时基线）；`changeCount` 轮询采集（`NSPasteboard` 无变更通知）；Carbon 热键 + 修饰键状态轮询（无需任何系统权限）；内容寻址存图（无需去重表）。
+
+## 已知限制
+
+- 目前仅按 Apple Silicon（arm64）构建。
+- 双击 ⌥ 依赖约 25 ms 的修饰键状态轮询，无法判断两次 ⌥ 之间是否按过其他键，极少数「⌥ + 字母」快速连打可能误触；可改用组合键。
+- 不记录 Universal Clipboard 与 transient / auto-generated 类型内容。
+- 不含 iCloud 同步、加密存储、自动更新、文件条目。
+
+## 许可
+
+[GNU General Public License v3.0](LICENSE)
