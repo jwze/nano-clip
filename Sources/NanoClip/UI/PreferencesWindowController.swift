@@ -194,7 +194,10 @@ final class PreferencesViewController: NSViewController,
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
         scroll.borderType = .noBorder
+        // The overlay scroller floats above the content, so the document view is inset on the right
+        // instead of the scroll view: the cards keep clear of the scroller and nothing is covered.
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 14, right: 0)
+        scroll.automaticallyAdjustsContentInsets = false
 
         let document = FlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
@@ -210,16 +213,21 @@ final class PreferencesViewController: NSViewController,
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: root.topAnchor, constant: 52),
-            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            // The scroll view runs nearly to the window edges; the symmetric inset lives on the
+            // content stack instead, so the overlay scroller can sit in the gutter on the right
+            // without the cards being asymmetric.
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
             document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 2),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            // 16 + the 4 above = the 20pt margin the window had before, equal on both sides. The
+            // right gutter is wide enough for the floating scroller to clear the cards.
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -8),
         ])
 

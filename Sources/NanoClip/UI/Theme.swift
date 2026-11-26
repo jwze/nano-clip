@@ -259,15 +259,16 @@ final class HUDGridView: NSView {
         }
         path.stroke()
 
-        // A faint horizontal glow under the header reads as a scanner bar.
+        // A faint glow under the header reads as a scanner bar. Two details matter here:
+        //   * the view is flipped, so `bounds.minY` is the top edge and the gradient has to be drawn
+        //     with `angle: 90` (a negative angle put the bright end at the bottom);
+        //   * the band spans the whole view instead of a fixed 70pt strip, because a hard 70pt cutoff
+        //     left a visible line where the still-strong glow suddenly stopped.
         let glow = NSGradient(colors: [
             Theme.neonBright.withAlphaComponent(0.09),
             Theme.neonBright.withAlphaComponent(0.0),
         ])
-        glow?.draw(
-            in: NSBezierPath(rect: NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 70)),
-            angle: -90
-        )
+        glow?.draw(in: bounds, angle: 90)
     }
 }
 
