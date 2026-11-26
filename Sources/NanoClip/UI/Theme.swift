@@ -168,6 +168,11 @@ final class HUDView: NSVisualEffectView {
         appearance = NSAppearance(named: .aqua)
         layer?.cornerRadius = cornerRadius
         layer?.masksToBounds = true
+        // `cornerRadius` alone does not clip the vibrancy material: the window server composites it
+        // outside the layer's own drawing, so the glass stayed rectangular and its corners peeked
+        // out from under the rounded panel as translucent spikes. `maskImage` clips the material
+        // itself, which is what actually rounds it off.
+        roundedCornerRadius = cornerRadius
 
         tintLayer.wantsLayer = true
         tintLayer.layer?.backgroundColor = Theme.tint.cgColor
@@ -189,6 +194,26 @@ final class HUDView: NSVisualEffectView {
                 child.bottomAnchor.constraint(equalTo: bottomAnchor),
             ])
         }
+    }
+
+    /// Radius used to build `maskImage`. The material is clipped by the mask, not by the layer.
+    private var roundedCornerRadius: CGFloat = 0
+
+    override func layout() {
+        super.layout()
+        updateMaskImage()
+    }
+
+    /// Rebuilds the rounded mask for the current size. `NSVisualEffectView` needs a real mask image:
+    /// the layer corner radius does not reach the vibrancy material it composites.
+    private func updateMaskImage() {
+        guard roundedCornerRadius > 0, bounds.width > 0, bounds.height > 0 else { return }
+        let image = NSImage(size: bounds.size, flipped: false) { [radius = roundedCornerRadius] rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        maskImage = image
     }
 
     required init?(coder: NSCoder) {
