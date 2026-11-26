@@ -22,11 +22,13 @@ macOS 14 Sonoma 或更高 · Xcode 命令行工具（Swift 6 工具链）
 ## 安装
 
 ```bash
-git clone https://github.com/<owner>/nano-clip.git && cd nano-clip
+git clone https://github.com/jwze/nano-clip.git && cd nano-clip
 
 ./Scripts/build-app.sh   # release 构建 → 生成图标 → 打包 build/NanoClip.app → 签名
 ./Scripts/install.sh     # 复制到 /Applications 并启动
 ```
+
+也可以在 [Releases](https://github.com/jwze/nano-clip/releases) 下载预构建的 macOS arm64 App。推送 `v*` 格式的版本标签（例如 `v1.0.0`）会自动构建并发布 GitHub Release；每次推送和 Pull Request 也会运行构建检查。
 
 默认 ad-hoc 签名。如需稳定签名（推荐，避免每次构建后重新授权）：
 
