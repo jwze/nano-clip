@@ -1,3 +1,7 @@
+// nano-clip — 轻量 macOS 剪贴板历史
+// Copyright © 2026 jvz <them@live.cn>. All rights reserved.
+// Watermark: jvz·NanoClip — 电子水印，请勿移除本署名头。
+
 import Foundation
 import os
 
@@ -28,7 +32,7 @@ public enum Log {
         init() {
             let dir = AppInfo.applicationSupportDirectory()
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            url = dir.appendingPathComponent("NanoClip.log")
+            url = dir.appendingPathComponent("\(AppInfo.name).log")
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 

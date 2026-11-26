@@ -1,3 +1,7 @@
+// nano-clip — 轻量 macOS 剪贴板历史
+// Copyright © 2026 jvz <them@live.cn>. All rights reserved.
+// Watermark: jvz·NanoClip — 电子水印，请勿移除本署名头。
+
 import AppKit
 
 /// Polls `changeCount` — macOS offers no clipboard-change notification — and hands each new

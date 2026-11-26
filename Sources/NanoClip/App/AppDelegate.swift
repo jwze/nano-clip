@@ -1,3 +1,7 @@
+// nano-clip — 轻量 macOS 剪贴板历史
+// Copyright © 2026 jvz <them@live.cn>. All rights reserved.
+// Watermark: jvz·NanoClip — 电子水印，请勿移除本署名头。
+
 import AppKit
 import NanoClipCore
 
@@ -26,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Log.info("NanoClip \(AppInfo.version) launching (pid \(getpid()))")
+        AppInfo.migrateLegacyDataIfNeeded()
+        Log.info("\(AppInfo.name) \(AppInfo.version) launching (pid \(getpid())) · \(AppInfo.signature)")
 
         if CommandLine.arguments.contains("--diagnostics") {
             runDiagnostics()
@@ -60,11 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
-        appMenu.addItem(
-            withTitle: "关于 NanoClip",
-            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+        let aboutItem = NSMenuItem(
+            title: "关于 \(AppInfo.name)",
+            action: #selector(menuShowAbout),
             keyEquivalent: ""
         )
+        aboutItem.target = self
+        appMenu.addItem(aboutItem)
         appMenu.addItem(.separator())
         let preferencesMenuItem = NSMenuItem(
             title: "偏好设置…",
@@ -93,6 +100,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func menuShowPreferences() {
         showPreferences()
+    }
+
+    /// Standard About panel, with the author watermark in the credits so the signature ships in
+    /// the binary as well as in the source headers.
+    @objc private func menuShowAbout() {
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: AppInfo.name,
+            .credits: NSAttributedString(
+                string: "\(AppInfo.watermark)\n\(AppInfo.copyright)",
+                attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
+            ),
+        ])
     }
 
     // MARK: - Setup
@@ -323,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let bundleID = Bundle.main.bundleIdentifier ?? "none"
         print("bundle: \(bundleID)")
         print("version: \(AppInfo.version)")
+        print("watermark: \(AppInfo.watermark)")
         print("hotkey: \(prefs.hotKeyTrigger.displayString)")
         print("launchAtLogin(pref): \(prefs.launchAtLogin)")
         print("launchAtLogin(system): \(LoginItem.statusDescription)")

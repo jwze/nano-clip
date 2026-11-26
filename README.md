@@ -1,4 +1,4 @@
-# NanoClip
+# nano-clip
 
 轻量级 macOS 剪贴板历史工具。菜单栏常驻，无 Dock 图标；纯 AppKit + 系统 SQLite，零第三方依赖。
 
@@ -22,7 +22,7 @@ macOS 14 Sonoma 或更高 · Xcode 命令行工具（Swift 6 工具链）
 ## 安装
 
 ```bash
-git clone https://github.com/<owner>/NanoClip.git && cd NanoClip
+git clone https://github.com/<owner>/nano-clip.git && cd nano-clip
 
 ./Scripts/build-app.sh   # release 构建 → 生成图标 → 打包 build/NanoClip.app → 签名
 ./Scripts/install.sh     # 复制到 /Applications 并启动
@@ -72,6 +72,7 @@ SIGN_IDENTITY="NanoClip Local" ./Scripts/build-app.sh
 
 - 数据只在本机明文保存：无云同步、无网络请求、不加密落盘。
 - 日志只记录条目数量 / 类型 / 耗时，不记录剪贴板内容。
+- 若之前跑过临时改名版（`nano-clip` / `com.jvz.nano-clip`）：首次启动会把它的数据目录与偏好域并回 `NanoClip`，历史与设置都不丢。
 
 卸载：
 
@@ -96,6 +97,10 @@ Sources/
 Scripts/           构建安装脚本、Info.plist、图标生成
 ```
 
+命名约定：**仓库/项目名是 `nano-clip`**；App 名、SwiftPM 包名与 bundle id 都是 `NanoClip`
+（`build/NanoClip.app`、`swift run NanoClip`、`com.jvz.nanoclip`）。Swift 模块标识符不能带连字符，
+所以 target 目录同样保持 PascalCase。
+
 设计取舍：AppKit 而非 SwiftUI（更低的运行时基线）；`changeCount` 轮询采集（`NSPasteboard` 无变更通知）；Carbon 热键 + 修饰键状态轮询（无需任何系统权限）；内容寻址存图（无需去重表）。
 
 ## 已知限制
@@ -104,6 +109,12 @@ Scripts/           构建安装脚本、Info.plist、图标生成
 - 双击 ⌥ 依赖约 25 ms 的修饰键状态轮询，无法判断两次 ⌥ 之间是否按过其他键，极少数「⌥ + 字母」快速连打可能误触；可改用组合键。
 - 不记录 Universal Clipboard 与 transient / auto-generated 类型内容。
 - 不含 iCloud 同步、加密存储、自动更新、文件条目。
+
+## 署名与水印
+
+本项目由 **jvz**（[them@live.cn](mailto:them@live.cn)）编写。每个源文件头部都带署名水印头；
+运行时水印 `jvz·NanoClip` 会出现在「关于 NanoClip」面板、`--diagnostics` 输出和 Info.plist 的版权字段中。
+请保留这些署名。
 
 ## 许可
 
