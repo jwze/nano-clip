@@ -202,10 +202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
+    /// The menu-bar icon is optional and off by default. The controller is always created, because it
+    /// owns the HUD popup that holds "设置…" and "退出"; only its status item appears on demand.
     private func startStatusItem() {
         let controller = StatusItemController()
         controller.itemCount = { [weak self] in self?.store?.statistics().count ?? 0 }
         controller.onShowPreferences = { [weak self] in self?.showPreferences() }
+        controller.setShown(prefs.showStatusItem)
         statusItemController = controller
     }
 
@@ -234,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func preferencesDidChange() {
         store?.trim(limits: prefs.limits)
+        statusItemController?.setShown(prefs.showStatusItem)
         applyHotKey(notifyOnFailure: true)
         statusItemController?.refreshHotKeyTitle()
         historyController?.refreshIfVisible()
@@ -275,6 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.historyController?.refreshIfVisible()
             }
             controller.onOpenPreferences = { [weak self] in self?.showPreferences() }
+            controller.onQuit = { NSApp.terminate(nil) }
             historyController = controller
         }
         historyController?.show()
@@ -348,6 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         print("launchAtLogin(system): \(LoginItem.statusDescription)")
         print("maxItems: \(prefs.keepsEverything ? "unlimited" : String(prefs.maxItems))")
         print("recordImages: \(prefs.recordImages)")
+        print("showStatusItem: \(prefs.showStatusItem)")
         print("ignoredApps: \(prefs.ignoredBundleIDs.count)")
 
         if let store = try? ClipStore() {

@@ -16,6 +16,8 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
     var onActivate: ((ClipItem) -> Void)?
     var onDelete: ((ClipItem) -> Void)?
     var onOpenPreferences: (() -> Void)?
+    /// The panel is the only route to quitting once the menu-bar icon is hidden, so it carries one.
+    var onQuit: (() -> Void)?
 
     private let store: ClipStore
     private let thumbnails = ThumbnailCache()
@@ -36,6 +38,7 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
     private let brandImage = NSImageView()
     private var categoryButtons: [HUDIconButton] = []
     private let settingsButton = HUDIconButton(symbol: "gearshape", tooltip: "设置")
+    private let quitButton = HUDIconButton(symbol: "power", tooltip: "退出 NanoClip")
 
     // MARK: content column
     private let content = FlippedView()  // autolayout: pinned below
@@ -175,6 +178,9 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
         settingsButton.target = self
         settingsButton.action = #selector(openPreferences)
 
+        quitButton.target = self
+        quitButton.action = #selector(quitApp)
+
         let stack = NSStackView(views: categoryButtons)
         stack.orientation = .vertical
         stack.alignment = .centerX
@@ -190,6 +196,7 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
         rail.addSubview(divider)
         rail.addSubview(stack)
         rail.addSubview(settingsButton)
+        rail.addSubview(quitButton)
 
         NSLayoutConstraint.activate([
             brandImage.topAnchor.constraint(equalTo: rail.topAnchor, constant: 14),
@@ -205,8 +212,10 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
             stack.topAnchor.constraint(equalTo: brandImage.bottomAnchor, constant: 16),
             stack.centerXAnchor.constraint(equalTo: rail.centerXAnchor),
 
-            settingsButton.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -12),
             settingsButton.centerXAnchor.constraint(equalTo: rail.centerXAnchor),
+            quitButton.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -6),
+            quitButton.centerXAnchor.constraint(equalTo: rail.centerXAnchor),
+            settingsButton.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -12),
         ])
 
         view.addSubview(rail)
@@ -705,6 +714,10 @@ final class HistoryViewController: NSViewController, NSTableViewDataSource, NSTa
 
     @objc private func openPreferences() {
         onOpenPreferences?()
+    }
+
+    @objc private func quitApp() {
+        onQuit?()
     }
 
     @objc private func dateChipTapped() {

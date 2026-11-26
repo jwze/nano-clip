@@ -8,6 +8,7 @@ import NanoClipCore
 @MainActor
 final class HistoryPanelController: NSObject, NSWindowDelegate {
     private let store: ClipStore
+    private let prefs = Prefs.shared
 
     private var panel: HistoryPanel?
     private var contentController: HistoryViewController?
@@ -23,6 +24,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
     var onActivate: ((ClipItem) -> Void)?
     var onDelete: ((ClipItem) -> Void)?
     var onOpenPreferences: (() -> Void)?
+    var onQuit: (() -> Void)?
 
     init(store: ClipStore) {
         self.store = store
@@ -45,8 +47,15 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         controller.onActivate = { [weak self] item in self?.onActivate?(item) }
         controller.onDelete = { [weak self] item in self?.onDelete?(item) }
         controller.onOpenPreferences = { [weak self] in
+            // Opening the settings window takes focus away, which dismisses the panel like any other
+            // click outside it; the settings window itself stays open and unaffected.
+            guard let self else { return }
+            self.hide(restoreFocus: false)
+            self.onOpenPreferences?()
+        }
+        controller.onQuit = { [weak self] in
             self?.hide()
-            self?.onOpenPreferences?()
+            self?.onQuit?()
         }
         panel.contentViewController = controller
         contentController = controller
@@ -100,6 +109,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
             self.activationObserver = nil
         }
         NotificationCenter.default.removeObserver(self, name: Prefs.didChangeNotification, object: nil)
+        if let panel, panel.isVisible { rememberPanelOrigin(panel) }
         panel?.orderOut(nil)
         // Drop the view controller so its table data and thumbnails are freed while hidden.
         panel?.contentViewController = nil
@@ -149,18 +159,43 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         return panel
     }
 
+    /// Restores the last dragged position, or picks a default near the top of the screen the pointer
+    /// is on. The remembered origin wins so the panel stays where the user put it.
     private func position(_ panel: HistoryPanel) {
+        let size = panel.frame.size
+        if let saved = prefs.panelOrigin, let frame = clamped(origin: saved, size: size) {
+            panel.setFrameOrigin(frame)
+            return
+        }
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
             ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return }
-        let size = panel.frame.size
         var x = visible.midX - size.width / 2
         var y = visible.minY + visible.height * 2 / 3 - size.height / 2
         // Keep the whole panel on-screen for short visible frames.
         x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
         y = min(max(y, visible.minY + 8), visible.maxY - size.height - 8)
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
+    }
+
+    /// Pulls a stored origin back onto a screen that still exists, so a panel dragged to a display
+    /// that is no longer attached cannot open off-screen.
+    private func clamped(origin: CGPoint, size: NSSize) -> CGPoint? {
+        let frame = CGRect(origin: origin, size: size)
+        guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) })
+            ?? NSScreen.main
+        else { return nil }
+        let visible = screen.visibleFrame
+        let x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
+        let y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
+        return CGPoint(x: x.rounded(), y: y.rounded())
+    }
+
+    /// Remembers where the user dragged the panel. Called when a drag ends, not per frame.
+    private func rememberPanelOrigin(_ panel: HistoryPanel) {
+        guard panel.isVisible else { return }
+        prefs.panelOrigin = panel.frame.origin
     }
 
     private func installKeyMonitor() {
@@ -200,7 +235,8 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
             contentController?.deleteSelected()
             return true
         case 43 where flags.contains(.command):  // ⌘,
-            hide()
+            // ⌘, dismisses the panel and opens the settings window, same as the rail button.
+            hide(restoreFocus: false)
             onOpenPreferences?()
             return true
         default:
@@ -219,7 +255,13 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         guard !isHiding else { return }
-        // Focus moved to another app because the user clicked away: do not yank it back.
-        hide(restoreFocus: NSApp.isActive)
+        // Any loss of focus dismisses the panel, whether it went to the settings window, another
+        // NanoClip window, or a different app entirely. `restoreFocus: false` leaves the app the
+        // user clicked on in front, and the settings window keeps its own state untouched.
+        hide(restoreFocus: false)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        // Recorded in `hide()` instead: saving on every drag frame would hammer UserDefaults.
     }
 }

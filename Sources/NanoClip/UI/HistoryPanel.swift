@@ -23,9 +23,12 @@ final class HistoryPanel: NSPanel {
         appearance = NSAppearance(named: .aqua)
         hasShadow = true
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        isMovable = false
-        isMovableByWindowBackground = false
+        // `.transient` would make the panel vanish on its own before the controller can decide;
+        // dismissal is handled explicitly in `HistoryPanelController.windowDidResignKey`.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Draggable by the background: the panel is borderless, so the empty margins are the handle.
+        isMovable = true
+        isMovableByWindowBackground = true
         hidesOnDeactivate = false
         animationBehavior = .utilityWindow
         becomesKeyOnlyIfNeeded = false

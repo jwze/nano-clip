@@ -3,6 +3,7 @@
 // Watermark: jvz·NanoClip — 电子水印，请勿移除本署名头。
 
 import Foundation
+import CoreGraphics
 
 /// UserDefaults-backed preferences, plus the default ignore list.
 public final class Prefs: @unchecked Sendable {
@@ -33,6 +34,10 @@ public final class Prefs: @unchecked Sendable {
         static let hotKeyTrigger = "hotKeyTrigger"
         static let ignoredBundleIDs = "ignoredBundleIDs"
         static let didMigrateRetention = "didMigrateRetention"
+        static let showStatusItem = "showStatusItem"
+        static let panelOriginX = "panelOriginX"
+        static let panelOriginY = "panelOriginY"
+        static let didMovePanel = "didMovePanel"
     }
 
     private let defaults: UserDefaults
@@ -46,6 +51,7 @@ public final class Prefs: @unchecked Sendable {
             Key.didAttemptLoginItem: false,
             Key.maxItems: Self.unlimitedItems,
             Key.recordImages: true,
+            Key.showStatusItem: false,
         ])
         if defaults.object(forKey: Key.ignoredBundleIDs) == nil {
             defaults.set(Self.defaultIgnoredBundleIDs, forKey: Key.ignoredBundleIDs)
@@ -72,6 +78,35 @@ public final class Prefs: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.launchAtLogin); changed() }
     }
 
+    /// Whether the menu-bar icon is shown at all. Off by default: the panel is driven by the hot key,
+    /// so the app can stay completely out of the menu bar.
+    public var showStatusItem: Bool {
+        get { defaults.bool(forKey: Key.showStatusItem) }
+        set { defaults.set(newValue, forKey: Key.showStatusItem); changed() }
+    }
+
+    /// Where the user last dragged the panel to, in screen coordinates. `nil` until the panel has been
+    /// moved, so the first open can still pick a sensible default position.
+    public var panelOrigin: CGPoint? {
+        get {
+            guard defaults.bool(forKey: Key.didMovePanel) else { return nil }
+            return CGPoint(
+                x: defaults.double(forKey: Key.panelOriginX),
+                y: defaults.double(forKey: Key.panelOriginY)
+            )
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.panelOriginX)
+                defaults.removeObject(forKey: Key.panelOriginY)
+                defaults.set(false, forKey: Key.didMovePanel)
+                return
+            }
+            defaults.set(Double(newValue.x), forKey: Key.panelOriginX)
+            defaults.set(Double(newValue.y), forKey: Key.panelOriginY)
+            defaults.set(true, forKey: Key.didMovePanel)
+        }
+    }
     public var didAttemptLoginItem: Bool {
         get { defaults.bool(forKey: Key.didAttemptLoginItem) }
         set { defaults.set(newValue, forKey: Key.didAttemptLoginItem) }

@@ -154,6 +154,7 @@ final class PreferencesViewController: NSViewController,
     private let store: ClipStore
 
     private let launchAtLoginSwitch = NSSwitch()
+    private let showStatusItemSwitch = NSSwitch()
     private let hotKeyButton: HotKeyRecorderButton
     private let maxItemsField = NSTextField(string: "0")
     private let maxItemsStepper = NSStepper()
@@ -227,6 +228,10 @@ final class PreferencesViewController: NSViewController,
         launchAtLoginSwitch.action = #selector(toggleLaunchAtLogin)
         launchAtLoginSwitch.controlSize = .small
 
+        showStatusItemSwitch.target = self
+        showStatusItemSwitch.action = #selector(toggleShowStatusItem)
+        showStatusItemSwitch.controlSize = .small
+
         loginStatusLabel.font = Theme.Font.monoHint
         loginStatusLabel.textColor = Theme.textTertiary
 
@@ -245,6 +250,7 @@ final class PreferencesViewController: NSViewController,
             toggleRow("登录时自动启动", toggle: launchAtLoginSwitch),
             indented(loginStatusLabel),
             settingRow("呼出快捷键", controls: [hotKeyButton, resetHotKeyButton]),
+            toggleRow("在状态栏显示图标", toggle: showStatusItemSwitch),
         ], to: stack)
 
         // MARK: 历史
@@ -443,6 +449,7 @@ final class PreferencesViewController: NSViewController,
 
     private func syncControls() {
         launchAtLoginSwitch.state = prefs.launchAtLogin ? .on : .off
+        showStatusItemSwitch.state = prefs.showStatusItem ? .on : .off
         recordImagesSwitch.state = prefs.recordImages ? .on : .off
         unlimitedItemsSwitch.state = prefs.keepsEverything ? .on : .off
         maxItemsField.stringValue = prefs.keepsEverything ? "不限" : "\(prefs.maxItems)"
@@ -471,6 +478,13 @@ final class PreferencesViewController: NSViewController,
         let enabled = launchAtLoginSwitch.state == .on
         prefs.launchAtLogin = enabled
         onLoginItemChanged?(enabled)
+        refreshRuntimeState()
+    }
+
+    /// The status item itself is torn down or created by `AppDelegate` in response to the prefs
+    /// notification, so nothing has to be wired up here beyond storing the new value.
+    @objc private func toggleShowStatusItem() {
+        prefs.showStatusItem = showStatusItemSwitch.state == .on
         refreshRuntimeState()
     }
 
@@ -767,6 +781,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
+        // Keep the settings window on screen when the app is deactivated: it is opened alongside the
+        // history panel, and losing key to that panel (or to another app) must not close it.
+        window.hidesOnDeactivate = false
+        window.collectionBehavior = [.fullScreenAuxiliary]
         window.appearance = NSAppearance(named: .aqua)
         window.backgroundColor = Theme.base
         window.minSize = NSSize(width: 560, height: 480)
